@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { generateR2ObjectKey, getPresignedUploadUrl } from '@/lib/storage/r2';
+import { canUploadFile } from '@/lib/storage/quota';
 import { UploadStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -85,6 +86,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: `File exceeds maximum allowed limit of ${maxSizeBytes / (1024 * 1024)}MB.` },
         { status: 400 }
+      );
+    }
+
+    // Storage Quota Enforcement (Phase 7 Hardening)
+    const quotaCheck = await canUploadFile(fileSize);
+    if (!quotaCheck.allowed) {
+      return NextResponse.json(
+        { error: quotaCheck.reason || 'Storage quota exceeded' },
+        { status: 429 }
       );
     }
 
