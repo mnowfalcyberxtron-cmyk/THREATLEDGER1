@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
+import { dispatchReviewVerdictNotification } from '@/lib/email/mailer';
 import { AssignmentStatus, ReviewStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -134,15 +135,13 @@ export async function POST(
     });
 
     // Notify analyst of review decision
-    await prisma.notification.create({
-      data: {
-        userId: assignment.primaryAnalystId,
-        title: `Review Decision: ${assignment.group.name} - ${action}`,
-        message: `${caller.fullName} completed review. Decision: ${action}. ${comments ? `Feedback: "${comments}"` : ''}`,
-        type: 'REVIEW',
-        link: `/my-tasks/${assignmentId}`,
-      },
-    });
+    if (action === 'APPROVE' || action === 'REQUEST_CHANGES' || action === 'REJECT') {
+      dispatchReviewVerdictNotification(
+        assignmentId,
+        action as 'APPROVED' | 'CHANGES_REQUESTED' | 'REJECTED',
+        comments
+      ).catch((e) => console.error('[Review Verdict Mailer Error]:', e));
+    }
 
     await recordAuditLog({
       actorId: caller.id,

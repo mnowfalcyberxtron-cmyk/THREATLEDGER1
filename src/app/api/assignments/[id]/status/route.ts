@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
+import {
+  dispatchReportSubmittedNotification,
+  dispatchReviewVerdictNotification,
+} from '@/lib/email/mailer';
 import { AssignmentStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -129,27 +133,25 @@ export async function POST(
       return res;
     });
 
-    // Create notifications for relevant parties
+    // Dispatch operational notifications & Section 31 email with physical attachment
     if (targetStatus === 'SUBMITTED_FOR_REVIEW') {
-      await prisma.notification.create({
-        data: {
-          userId: assignment.reviewerId,
-          title: `Research Submitted: ${assignment.group.name}`,
-          message: `${caller.fullName} submitted research report for review.`,
-          type: 'SUBMISSION',
-          link: `/review-queue`,
-        },
-      });
-    } else if (targetStatus === 'APPROVED_COMPLETED' || targetStatus === 'CHANGES_REQUESTED' || targetStatus === 'REJECTED') {
-      await prisma.notification.create({
-        data: {
-          userId: assignment.primaryAnalystId,
-          title: `Review Decision on ${assignment.group.name}: ${targetStatus}`,
-          message: `${caller.fullName} decided: ${targetStatus}. ${reason ? `Feedback: "${reason}"` : ''}`,
-          type: 'REVIEW',
-          link: `/my-tasks/${assignmentId}`,
-        },
-      });
+      dispatchReportSubmittedNotification(assignmentId).catch((e) =>
+        console.error('[Background Email Dispatch Error]:', e)
+      );
+    } else if (
+      targetStatus === 'APPROVED_COMPLETED' ||
+      targetStatus === 'CHANGES_REQUESTED' ||
+      targetStatus === 'REJECTED'
+    ) {
+      const verdict =
+        targetStatus === 'APPROVED_COMPLETED'
+          ? 'APPROVED'
+          : targetStatus === 'CHANGES_REQUESTED'
+          ? 'CHANGES_REQUESTED'
+          : 'REJECTED';
+      dispatchReviewVerdictNotification(assignmentId, verdict, reason).catch((e) =>
+        console.error('[Background Email Dispatch Error]:', e)
+      );
     }
 
     await recordAuditLog({

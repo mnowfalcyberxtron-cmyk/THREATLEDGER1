@@ -14,6 +14,7 @@ interface HeaderProps {
 export function Header({ userFullName, userRole, onSyncNow, syncing = false }: HeaderProps) {
   // Format current time in Asia/Kolkata
   const [istTime, setIstTime] = React.useState('');
+  const [unreadCount, setUnreadCount] = React.useState(0);
 
   React.useEffect(() => {
     function updateClock() {
@@ -30,6 +31,23 @@ export function Header({ userFullName, userRole, onSyncNow, syncing = false }: H
     updateClock();
     const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => {
+    async function checkUnread() {
+      try {
+        const res = await fetch('/api/notifications?limit=1');
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.unreadCount || 0);
+        }
+      } catch {
+        // quiet fallback
+      }
+    }
+    checkUnread();
+    const poll = setInterval(checkUnread, 30000);
+    return () => clearInterval(poll);
   }, []);
 
   return (
@@ -69,7 +87,11 @@ export function Header({ userFullName, userRole, onSyncNow, syncing = false }: H
           title="Notification Center"
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-400" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-slate-950">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </Link>
 
         {/* User Badge */}

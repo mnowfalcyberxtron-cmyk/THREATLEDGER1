@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
+import { dispatchTaskAssignedNotification } from '@/lib/email/mailer';
 import { AssignmentPriority, AssignmentStatus, ChecklistStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -174,6 +175,11 @@ export async function POST(req: NextRequest) {
           link: `/my-tasks/${assignment.id}`,
         },
       });
+
+      // Dispatch email notification to assigned analyst
+      dispatchTaskAssignedNotification(assignment.id).catch((e) =>
+        console.error('[Assignment Email Dispatch Error]:', e)
+      );
 
       createdAssignments.push(assignment);
     }
