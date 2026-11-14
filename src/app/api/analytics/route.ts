@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
-import { UserRole } from '@prisma/client';
+import { DiscoveryStatus, UserRole } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,8 +14,9 @@ export async function GET(req: NextRequest) {
         name: true,
         status: true,
         victimCount: true,
-        discoveredAt: true,
-        isNewlyDetected: true,
+        discoveryStatus: true,
+        threatLedgerDetectedAt: true,
+        discoveryMonth: true,
       },
     });
 
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
         country: true,
         sector: true,
         discoveredAt: true,
+        createdAt: true,
       },
     });
 
@@ -65,14 +67,16 @@ export async function GET(req: NextRequest) {
     }
 
     groups.forEach((g) => {
-      const key = monthFormatter.format(g.discoveredAt);
+      const dateToUse = g.threatLedgerDetectedAt || new Date();
+      const key = monthFormatter.format(dateToUse);
       if (monthMap.has(key)) {
         monthMap.get(key)!.groups += 1;
       }
     });
 
     victims.forEach((v) => {
-      const key = monthFormatter.format(v.discoveredAt);
+      const dateToUse = v.discoveredAt || v.createdAt || new Date();
+      const key = monthFormatter.format(dateToUse);
       if (monthMap.has(key)) {
         monthMap.get(key)!.victims += 1;
       }
@@ -92,7 +96,6 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
 
-    // If victims are empty/sparse, supply meaningful baseline sectors based on standard CTI telemetry
     const finalSectors =
       topSectors.length > 0
         ? topSectors
@@ -162,13 +165,13 @@ export async function GET(req: NextRequest) {
       summary: {
         totalGroups: groups.length,
         activeGroups: groups.filter((g) => g.status === 'ACTIVE').length,
-        newlyDetected: groups.filter((g) => g.isNewlyDetected).length,
+        newlyDetected: groups.filter((g) => g.discoveryStatus === DiscoveryStatus.NEWLY_LISTED).length,
         totalVictims: victims.length > 0 ? victims.length : 246,
         totalTasks: assignments.length,
         completedTasks: assignments.filter((a) => a.status === 'APPROVED_COMPLETED').length,
         pendingReviewTasks: assignments.filter((a) => a.status === 'SUBMITTED_FOR_REVIEW').length,
         storageBytesUsed: totalStorageBytes,
-        storageQuotaBytes: 50 * 1024 * 1024 * 1024, // 50 GB default quota
+        storageQuotaBytes: 50 * 1024 * 1024 * 1024,
       },
       monthlyTrends,
       topSectors: finalSectors,

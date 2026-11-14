@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
-import { UserRole } from '@prisma/client';
+import { DiscoveryStatus, UserRole } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
         'Group Name',
         'Status',
         'Victim Count',
-        'Newly Detected',
-        'Discovered At',
+        'Discovery Status',
+        'Detected At (IST)',
         'Aliases',
         'Associated CVEs',
         'MITRE ATT&CK TTPs',
@@ -51,11 +51,11 @@ export async function GET(req: NextRequest) {
         `"${g.name.replace(/"/g, '""')}"`,
         `"${g.status}"`,
         g.victimCount,
-        g.isNewlyDetected ? 'YES' : 'NO',
-        `"${g.discoveredAt.toISOString()}"`,
+        `"${g.discoveryStatus}"`,
+        `"${g.threatLedgerDetectedAt.toISOString()}"`,
         `"${g.aliases.map((a) => a.alias).join(', ')}"`,
         `"${g.cves.map((c) => c.cveId).join(', ')}"`,
-        `"${g.ttps.map((t) => t.techniqueId).join(', ')}"`,
+        `"${g.ttps.map((t) => t.mitreTechniqueId).join(', ')}"`,
       ]);
 
       const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -71,7 +71,10 @@ export async function GET(req: NextRequest) {
 
     if (type === 'victims') {
       const victims = await prisma.victim.findMany({
-        orderBy: { discoveredAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          group: { select: { name: true } },
+        },
         take: 500,
       });
 
@@ -85,15 +88,15 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      const headers = ['ID', 'Victim Name', 'Group Name', 'Country', 'Sector', 'Discovered At', 'Website'];
+      const headers = ['ID', 'Victim Name', 'Group Name', 'Country', 'Sector', 'Discovered At', 'Source URL'];
       const rows = victims.map((v) => [
         `"${v.id}"`,
         `"${v.victimName.replace(/"/g, '""')}"`,
-        `"${v.groupName.replace(/"/g, '""')}"`,
+        `"${v.group?.name?.replace(/"/g, '""') || 'Unknown'}"`,
         `"${v.country || 'N/A'}"`,
         `"${v.sector || 'N/A'}"`,
-        `"${v.discoveredAt.toISOString()}"`,
-        `"${v.websiteUrl || ''}"`,
+        `"${(v.discoveredAt || v.createdAt).toISOString()}"`,
+        `"${v.sourceUrl || v.domain || ''}"`,
       ]);
 
       const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
