@@ -1,0 +1,606 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  ANALYST
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum GroupSource {
+  RANSOMWARE_LIVE
+  MANUAL
+  MERGED
+}
+
+enum GroupStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+  RENAMED
+}
+
+enum DiscoveryStatus {
+  BASELINE
+  NEWLY_LISTED
+  PREVIOUSLY_KNOWN
+  MANUALLY_ADDED
+  REAPPEARED
+  RENAMED_UNDER_REVIEW
+}
+
+enum AssignmentPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum AssignmentStatus {
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  ON_HOLD
+  SUBMITTED_FOR_REVIEW
+  CHANGES_REQUESTED
+  APPROVED_COMPLETED
+  REJECTED
+  REASSIGNED
+  CANCELLED
+}
+
+enum ChecklistStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  NOT_APPLICABLE
+}
+
+enum NoteType {
+  SHARED
+  ADMIN_PRIVATE
+}
+
+enum UploadStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  FAILED
+}
+
+enum ReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  RATE_LIMITED
+}
+
+enum EmailProvider {
+  SMTP
+  RESEND
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRYING
+}
+
+// ----------------------------------------------------
+// IDENTITY & USERS
+// ----------------------------------------------------
+
+model User {
+  id                String       @id @default(uuid())
+  email             String       @unique
+  encryptedPassword String?
+  supabaseUid       String?      @unique
+  status            UserStatus   @default(ACTIVE)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  profile           UserProfile?
+  sentInvitations   Invitation[] @relation("InvitedByUser")
+  sessions          Session[]
+
+  @@index([email])
+}
+
+model UserProfile {
+  id               String       @id @default(uuid())
+  userId           String       @unique
+  fullName         String
+  role             UserRole     @default(ANALYST)
+  avatarUrl        String?
+  timezone         String       @default("Asia/Kolkata")
+  lastLoginAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedTasks    Assignment[] @relation("PrimaryAnalyst")
+  createdTasks     Assignment[] @relation("TaskAssigner")
+  reviewedTasks    Assignment[] @relation("TaskReviewer")
+  assignmentNotes  AssignmentNote[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+
+  @@index([role])
+}
+
+model Invitation {
+  id          String           @id @default(uuid())
+  email       String
+  role        UserRole         @default(ANALYST)
+  token       String           @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  status      InvitationStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  invitedBy   User             @relation("InvitedByUser", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@index([token])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  sessionToken String   @unique
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionToken])
+}
+
+// ----------------------------------------------------
+// THREAT INTELLIGENCE: RANSOMWARE GROUPS & VICTIMS
+// ----------------------------------------------------
+
+model RansomwareGroup {
+  id                    String                @id @default(uuid())
+  name                  String                @unique
+  normalizedName        String                @unique
+  description           String?               @db.Text
+  source                GroupSource           @default(RANSOMWARE_LIVE)
+  externalId            String?
+  status                GroupStatus           @default(ACTIVE)
+  discoveryStatus       DiscoveryStatus       @default(BASELINE)
+  discoveryMonth        String?               // e.g. "2026-11"
+  threatLedgerDetectedAt DateTime             @default(now())
+  firstSeenSourceAt     DateTime?
+  sourceAddedAt         DateTime?
+  lastObservedAt        DateTime?
+  websiteUrl            String?
+  profileUrl            String?
+  victimCount           Int                   @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  aliases               GroupAlias[]
+  snapshots             GroupSnapshot[]
+  discoveryEvents       GroupDiscoveryEvent[]
+  victims               Victim[]
+  ttps                  GroupTTP[]
+  cves                  GroupCVE[]
+  tools                 GroupTool[]
+  assignments           Assignment[]
+
+  @@index([name])
+  @@index([normalizedName])
+  @@index([discoveryMonth])
+  @@index([discoveryStatus])
+  @@index([status])
+}
+
+model GroupAlias {
+  id        String          @id @default(uuid())
+  groupId   String
+  alias     String
+  createdAt DateTime        @default(now())
+
+  group     RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, alias])
+  @@index([alias])
+}
+
+model GroupSnapshot {
+  id               String          @id @default(uuid())
+  groupId          String
+  snapshotDate     DateTime        @default(now())
+  rawSourcePayload Json
+  createdAt        DateTime        @default(now())
+
+  group            RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, snapshotDate])
+}
+
+model GroupDiscoveryEvent {
+  id             String          @id @default(uuid())
+  groupId        String
+  discoveryType  DiscoveryStatus
+  discoveryMonth String          // YYYY-MM
+  detectedAt     DateTime        @default(now())
+  details        String?
+
+  group          RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([discoveryMonth])
+}
+
+model Victim {
+  id                 String          @id @default(uuid())
+  externalId         String?         @unique
+  groupId            String
+  victimName         String
+  country            String?
+  countryCode        String?
+  sector             String?
+  industry           String?
+  domain             String?
+  discoveredAt       DateTime?
+  attackedAt         DateTime?
+  sourceUrl          String?
+  sourceRetrievedAt  DateTime        @default(now())
+  claimType          String          @default("ATTACKER_CLAIM") // ATTACKER_CLAIM vs VERIFIED
+  createdAt          DateTime        @default(now())
+
+  group              RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([victimName])
+  @@index([groupId])
+  @@index([country])
+  @@index([sector])
+  @@index([discoveredAt])
+}
+
+model GroupTTP {
+  id                  String          @id @default(uuid())
+  groupId             String
+  mitreTactic         String
+  mitreTechniqueId    String          // e.g. T1486
+  mitreTechniqueName  String
+  attckVersion        String          @default("v14.1")
+  notes               String?
+
+  group               RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([mitreTechniqueId])
+}
+
+model GroupCVE {
+  id              String          @id @default(uuid())
+  groupId         String
+  cveId           String          // e.g. CVE-2023-34362
+  description     String?
+  cvssScore       Float?
+  exploitedStatus String?
+
+  group           RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+  @@index([cveId])
+}
+
+model GroupTool {
+  id          String          @id @default(uuid())
+  groupId     String
+  toolName    String
+  category    String?         // e.g. "Ransomware Encryptor", "Lateral Movement"
+  description String?
+
+  group       RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+// ----------------------------------------------------
+// ASSIGNMENT MANAGEMENT & COLLABORATION
+// ----------------------------------------------------
+
+model AssignmentBatch {
+  id          String       @id @default(uuid())
+  title       String
+  createdById String
+  createdAt   DateTime     @default(now())
+
+  assignments Assignment[]
+}
+
+model Assignment {
+  id                   String               @id @default(uuid())
+  batchId              String?
+  groupId              String
+  primaryAnalystId     String
+  assignerId           String
+  reviewerId           String
+  title                String
+  instructions         String?              @db.Text
+  priority             AssignmentPriority   @default(MEDIUM)
+  status               AssignmentStatus     @default(ASSIGNED)
+  dueDate              DateTime?
+  acceptedAt           DateTime?
+  submittedAt          DateTime?
+  submittedById        String?
+  reviewedAt           DateTime?
+  reviewedById         String?
+  approvedAt           DateTime?
+  approvedById         String?
+  approvedVersionNumber Int?
+  rejectionReason      String?              @db.Text
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  batch                AssignmentBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  group                RansomwareGroup      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  primaryAnalyst       UserProfile          @relation("PrimaryAnalyst", fields: [primaryAnalystId], references: [id])
+  assigner             UserProfile          @relation("TaskAssigner", fields: [assignerId], references: [id])
+  reviewer             UserProfile          @relation("TaskReviewer", fields: [reviewerId], references: [id])
+
+  checklistItems       AssignmentChecklistItem[]
+  notes                AssignmentNote[]
+  events               AssignmentEvent[]
+  reports              ResearchReport[]
+  evidence             SupportingEvidence[]
+
+  @@index([groupId])
+  @@index([primaryAnalystId])
+  @@index([reviewerId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model AssignmentChecklistItem {
+  id                  String          @id @default(uuid())
+  assignmentId        String
+  itemKey             String          // e.g. "group_overview", "mitre_mapping"
+  title               String
+  orderIndex          Int
+  status              ChecklistStatus @default(NOT_STARTED)
+  notApplicableReason String?
+  updatedById         String?
+  updatedAt           DateTime        @updatedAt
+
+  assignment          Assignment      @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, orderIndex])
+}
+
+model AssignmentNote {
+  id           String      @id @default(uuid())
+  assignmentId String
+  authorId     String
+  noteType     NoteType    @default(SHARED)
+  content      String      @db.Text
+  parentNoteId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  assignment   Assignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  author       UserProfile @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, noteType])
+}
+
+model AssignmentEvent {
+  id           String            @id @default(uuid())
+  assignmentId String
+  actorId      String
+  eventType    String            // "ASSIGNED", "STATUS_CHANGE", "SUBMITTED", "APPROVED", etc.
+  oldStatus    AssignmentStatus?
+  newStatus    AssignmentStatus?
+  reason       String?           @db.Text
+  createdAt    DateTime          @default(now())
+
+  assignment   Assignment        @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, createdAt])
+}
+
+// ----------------------------------------------------
+// REPORTS & SUPPORTING EVIDENCE (R2 OBJECT METADATA)
+// ----------------------------------------------------
+
+model ResearchReport {
+  id                    String          @id @default(uuid())
+  assignmentId          String
+  groupId               String
+  latestVersionNumber   Int             @default(1)
+  approvedVersionNumber Int?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  assignment            Assignment      @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  versions              ReportVersion[]
+
+  @@index([assignmentId])
+}
+
+model ReportVersion {
+  id               String          @id @default(uuid())
+  reportId         String
+  versionNumber    Int
+  filename         String
+  fileSize         Int             // in bytes
+  mimeType         String
+  r2ObjectKey      String          @unique // e.g. reports/{assignmentId}/{fileId}/{safeFilename}
+  sha256           String
+  uploaderId       String
+  uploadStatus     UploadStatus    @default(PENDING_VERIFICATION)
+  submittedAt      DateTime?
+  reviewStatus     ReviewStatus    @default(PENDING_REVIEW)
+  reviewerComments String?         @db.Text
+  createdAt        DateTime        @default(now())
+
+  report           ResearchReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, versionNumber])
+  @@index([r2ObjectKey])
+}
+
+model SupportingEvidence {
+  id           String          @id @default(uuid())
+  assignmentId String
+  groupId      String
+  filename     String
+  category     String          // e.g. "Victim Dataset", "Screenshot", "Network Graph", "Raw IOC"
+  fileSize     Int
+  mimeType     String
+  r2ObjectKey  String          @unique // e.g. evidence/{assignmentId}/{fileId}/{safeFilename}
+  sha256       String
+  description  String?         @db.Text
+  uploaderId   String
+  uploadStatus UploadStatus    @default(PENDING_VERIFICATION)
+  createdAt    DateTime        @default(now())
+
+  assignment   Assignment      @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+  @@index([groupId])
+}
+
+model FileDownloadEvent {
+  id           String   @id @default(uuid())
+  fileType     String   // "REPORT" or "EVIDENCE"
+  fileId       String
+  userId       String
+  ipAddress    String?
+  downloadedAt DateTime @default(now())
+
+  @@index([fileId, userId])
+}
+
+// ----------------------------------------------------
+// NOTIFICATIONS & EMAIL
+// ----------------------------------------------------
+
+model Notification {
+  id        String      @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String      // "ASSIGNMENT", "SUBMISSION", "REVIEW", "DISCOVERY", "NOTE"
+  link      String?
+  isRead    Boolean     @default(false)
+  createdAt DateTime    @default(now())
+
+  user      UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model EmailOutbox {
+  id                String        @id @default(uuid())
+  recipientEmail    String
+  subject           String
+  templateType      String
+  provider          EmailProvider @default(SMTP)
+  status            EmailStatus   @default(PENDING)
+  attempts          Int           @default(0)
+  providerMessageId String?
+  errorMessage      String?       @db.Text
+  idempotencyKey    String        @unique
+  hasAttachment     Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  sentAt            DateTime?
+
+  @@index([status])
+  @@index([idempotencyKey])
+}
+
+// ----------------------------------------------------
+// INTEGRATIONS & AUDIT LOGS
+// ----------------------------------------------------
+
+model ApiSyncRun {
+  id              String     @id @default(uuid())
+  syncSource      String     // "RANSOMWARE_LIVE_INVENTORY", "RANSOMWARE_LIVE_VICTIMS", "GITHUB_MONITOR"
+  status          SyncStatus @default(RUNNING)
+  recordsFetched  Int        @default(0)
+  recordsCreated  Int        @default(0)
+  recordsUpdated  Int        @default(0)
+  newGroupsFound  Int        @default(0)
+  errorMessage    String?    @db.Text
+  startedAt       DateTime   @default(now())
+  completedAt     DateTime?
+
+  @@index([syncSource, startedAt])
+}
+
+model GithubRepositoryEvent {
+  id              String   @id @default(uuid())
+  commitHash      String   @unique
+  commitMessage   String
+  commitAuthor    String
+  committedAt     DateTime
+  changedFiles    Json     // Array of changed files and statuses
+  createdAt       DateTime @default(now())
+
+  @@index([committedAt])
+}
+
+model AuditLog {
+  id         String       @id @default(uuid())
+  actorId    String?
+  actorName  String?
+  actorEmail String?
+  action     String       // e.g. "USER_LOGIN", "INITIAL_SETUP", "REPORT_SUBMITTED", "REPORT_APPROVED"
+  targetType String       // e.g. "ASSIGNMENT", "GROUP", "USER", "SETTING"
+  targetId   String?
+  beforeJson Json?
+  afterJson  Json?
+  ipAddress  String?
+  createdAt  DateTime     @default(now())
+
+  actor      UserProfile? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id             String   @id @default(uuid())
+  key            String   @unique
+  valueEncrypted String   @db.Text
+  description    String?
+  updatedAt      DateTime @updatedAt
+
+  @@index([key])
+}
