@@ -6,6 +6,7 @@ import {
   dispatchReportSubmittedNotification,
   dispatchReviewVerdictNotification,
 } from '@/lib/email/mailer';
+import { cancelTerminalReminders } from '@/lib/services/reminder-engine';
 import { AssignmentStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -132,6 +133,13 @@ export async function POST(
 
       return res;
     });
+
+    // Cancel pending reminders upon reaching terminal status (Section 8)
+    if (targetStatus === 'APPROVED_COMPLETED' || targetStatus === 'CANCELLED') {
+      cancelTerminalReminders(assignmentId).catch((e) =>
+        console.error('[Cancel Reminders Error]:', e)
+      );
+    }
 
     // Dispatch operational notifications & Section 31 email with physical attachment
     if (targetStatus === 'SUBMITTED_FOR_REVIEW') {

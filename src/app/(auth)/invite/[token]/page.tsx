@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { AnimatedLogo } from '@/components/brand/AnimatedLogo';
+import { ThreatLedgerLogo } from '@/components/brand/ThreatLedgerLogo';
 import { UserCheck, User, Lock, AlertCircle, ArrowRight, Shield } from 'lucide-react';
 
 export default function AcceptInvitePage() {
@@ -80,7 +80,7 @@ export default function AcceptInvitePage() {
   if (verifying) {
     return (
       <div className="min-h-screen bg-[#060a12] flex items-center justify-center p-6 text-slate-400">
-        <AnimatedLogo size={70} />
+        <ThreatLedgerLogo variant="loading" animated />
       </div>
     );
   }
@@ -89,7 +89,7 @@ export default function AcceptInvitePage() {
     <div className="min-h-screen w-full flex flex-col justify-center items-center p-6 bg-[#060a12] text-slate-100">
       <div className="w-full max-w-lg bg-[#0a101f] border border-slate-800 rounded-2xl p-8 sm:p-10 shadow-2xl shadow-emerald-950/20">
         <div className="flex flex-col items-center text-center space-y-3">
-          <AnimatedLogo size={80} />
+          <ThreatLedgerLogo variant="login" animated />
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
             <UserCheck className="w-4 h-4" />
             Team Invitation Acceptance

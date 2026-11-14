@@ -5,9 +5,9 @@ export const metadata: Metadata = {
   title: 'ThreatLedger — Enterprise Cyber Threat Intelligence Operations Platform',
   description: 'Centralized intelligence, evidence, assignments and historical records.',
   icons: {
-    icon: '/brand/threatledger-mark.svg',
-    shortcut: '/brand/threatledger-mark.svg',
-    apple: '/brand/threatledger-mark.svg',
+    icon: '/brand/threatledger-logo.png',
+    shortcut: '/brand/threatledger-logo.png',
+    apple: '/brand/threatledger-logo.png',
   },
 };
 

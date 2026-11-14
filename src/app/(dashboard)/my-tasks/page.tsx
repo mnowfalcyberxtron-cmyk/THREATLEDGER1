@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
+import { getWorkingDayDeadlineStatus } from '@/lib/datetime/working-days';
 
 export default function MyTasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -101,7 +102,8 @@ export default function MyTasksPage() {
           <div className="divide-y divide-slate-800/60">
             {tasks.map((t) => {
               const completedCount = t.checklistItems?.filter((i: any) => i.status === 'COMPLETED').length || 0;
-              const isOverdue = t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'APPROVED_COMPLETED';
+              const deadlineStatus = getWorkingDayDeadlineStatus(t.dueDate);
+              const isOverdue = deadlineStatus.isOverdue && t.status !== 'APPROVED_COMPLETED' && t.status !== 'CANCELLED';
 
               return (
                 <div key={t.id} className="p-4 hover:bg-slate-900/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -131,9 +133,17 @@ export default function MyTasksPage() {
                       >
                         {t.status}
                       </span>
-                      {isOverdue && (
-                        <span className="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
-                          OVERDUE
+                      {t.dueDate && (
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          deadlineStatus.badgeVariant === 'rose'
+                            ? 'bg-rose-950 text-rose-300 border border-rose-500/40'
+                            : deadlineStatus.badgeVariant === 'amber'
+                            ? 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                            : deadlineStatus.badgeVariant === 'emerald'
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                            : 'text-slate-500'
+                        }`}>
+                          {deadlineStatus.label}
                         </span>
                       )}
                     </div>
@@ -151,8 +161,8 @@ export default function MyTasksPage() {
                       <span className="text-[11px] text-slate-400 block font-mono">
                         Checklist: <strong className="text-white">{completedCount}/15</strong>
                       </span>
-                      <span className="text-[10px] text-slate-500 block font-mono">
-                        Due: {t.dueDate ? formatIST(t.dueDate) : 'No Deadline'}
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        Due: {deadlineStatus.dueDateFormatted}
                       </span>
                     </div>
 

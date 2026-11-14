@@ -17,6 +17,8 @@ import {
 import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
+import { WeekdayDatePicker } from '@/components/ui/WeekdayDatePicker';
+import { getWorkingDayDeadlineStatus } from '@/lib/datetime/working-days';
 
 interface AssignmentRow {
   id: string;
@@ -52,6 +54,8 @@ export default function AssignmentsPage() {
   const [instructions, setInstructions] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
   const [dueDate, setDueDate] = useState('');
+  const [individualDeadlines, setIndividualDeadlines] = useState<Record<string, string>>({});
+  const [useSeparateDeadlines, setUseSeparateDeadlines] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -123,6 +127,7 @@ export default function AssignmentsPage() {
           instructions,
           priority,
           dueDate: dueDate || undefined,
+          individualDeadlines: useSeparateDeadlines ? individualDeadlines : undefined,
         }),
       });
 
@@ -291,8 +296,28 @@ export default function AssignmentsPage() {
                       <td className="py-3.5 px-4 text-slate-300">
                         {a.reviewer?.fullName || 'Reviewer'}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px] whitespace-nowrap">
-                        {a.dueDate ? formatIST(a.dueDate) : 'No Deadline'}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        {(() => {
+                          const status = getWorkingDayDeadlineStatus(a.dueDate);
+                          return (
+                            <div className="space-y-0.5">
+                              <span className="text-white font-mono text-xs block">{status.dueDateFormatted}</span>
+                              {a.dueDate && (
+                                <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                                  status.badgeVariant === 'rose'
+                                    ? 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
+                                    : status.badgeVariant === 'amber'
+                                    ? 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                                    : status.badgeVariant === 'emerald'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                                    : 'text-slate-500'
+                                }`}>
+                                  {status.label}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <Link
@@ -423,15 +448,60 @@ export default function AssignmentsPage() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Deadline Date (IST)</label>
-                  <input
-                    type="date"
+                  <WeekdayDatePicker
                     value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none"
+                    onChange={setDueDate}
+                    label="Common Assignment Deadline"
                   />
                 </div>
               </div>
+
+              {/* Bulk Allocation: Optional Separate Deadlines */}
+              {selectedGroupIds.length > 1 && (
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-white block">Individual Group Deadlines</span>
+                      <span className="text-[10px] text-slate-400">Optionally configure separate working-day deadlines per syndicate</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setUseSeparateDeadlines((prev) => !prev)}
+                      className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                        useSeparateDeadlines
+                          ? 'bg-emerald-500 text-slate-950 font-bold'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {useSeparateDeadlines ? 'Enabled' : 'Use Common Deadline'}
+                    </button>
+                  </div>
+
+                  {useSeparateDeadlines && (
+                    <div className="space-y-2 pt-2 border-t border-slate-800">
+                      {selectedGroupIds.map((gId) => {
+                        const grp = availableGroups.find((g) => g.id === gId);
+                        return (
+                          <div key={gId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2 rounded bg-slate-900 border border-slate-800/80">
+                            <span className="text-xs font-semibold text-white truncate max-w-[200px]">
+                              {grp?.name || gId}
+                            </span>
+                            <div className="w-full sm:w-60">
+                              <WeekdayDatePicker
+                                value={individualDeadlines[gId] || dueDate}
+                                onChange={(val) =>
+                                  setIndividualDeadlines((prev) => ({ ...prev, [gId]: val }))
+                                }
+                                label=""
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold text-slate-300 mb-1">Research Instructions & Scope</label>

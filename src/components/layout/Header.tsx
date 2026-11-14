@@ -3,6 +3,7 @@
 import React from 'react';
 import { Bell, Clock, ShieldCheck, RefreshCw, User } from 'lucide-react';
 import Link from 'next/link';
+import { ThreatLedgerLogo } from '@/components/brand/ThreatLedgerLogo';
 
 interface HeaderProps {
   userFullName?: string;
@@ -54,10 +55,16 @@ export function Header({ userFullName, userRole, onSyncNow, syncing = false }: H
     <header className="h-16 px-6 bg-[#070b14]/90 backdrop-blur-md border-b border-slate-800/80 flex items-center justify-between sticky top-0 z-20">
       {/* Left: Operational Status / Timezone */}
       <div className="flex items-center gap-4">
+        {/* Mobile brand display */}
+        <div className="sm:hidden flex items-center gap-2">
+          <ThreatLedgerLogo variant="header" />
+          <span className="font-bold text-white text-xs tracking-tight">Threat<span className="text-emerald-400">Ledger</span></span>
+        </div>
+
         <div className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-300">
           <Clock className="w-3.5 h-3.5 text-emerald-400" />
           <span className="font-mono">{istTime || '--:--:--'}</span>
-          <span className="text-[10px] text-slate-500 font-semibold uppercase">IST (Asia/Kolkata)</span>
+          <span className="text-[10px] text-slate-500 font-semibold uppercase hidden xs:inline">IST (Asia/Kolkata)</span>
         </div>
 
         {/* Live Source Indicator */}

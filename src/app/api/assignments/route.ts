@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
 import { dispatchTaskAssignedNotification } from '@/lib/email/mailer';
+import { validateWorkingDayDeadline, parseISTCalendarDateToEndOfDay } from '@/lib/datetime/working-days';
+import { rescheduleAssignmentReminders } from '@/lib/services/reminder-engine';
 import { AssignmentPriority, AssignmentStatus, ChecklistStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
@@ -32,6 +34,7 @@ const createAssignmentSchema = z.object({
   instructions: z.string().optional(),
   priority: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
   dueDate: z.string().optional(),
+  individualDeadlines: z.record(z.string(), z.string()).optional(), // Map of groupId -> custom deadline
 });
 
 export async function GET(req: NextRequest) {
@@ -80,6 +83,13 @@ export async function GET(req: NextRequest) {
             },
           },
         },
+        deadlineHistory: {
+          take: 5,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            changedBy: { select: { fullName: true } },
+          },
+        },
         _count: {
           select: { notes: true, evidence: true },
         },
@@ -109,7 +119,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { groupIds, primaryAnalystId, reviewerId, title, instructions, priority, dueDate } = parsed.data;
+    const {
+      groupIds,
+      primaryAnalystId,
+      reviewerId,
+      title,
+      instructions,
+      priority,
+      dueDate,
+      individualDeadlines,
+    } = parsed.data;
+
+    // 1. Mandatory Working-Day Validation (PART 1 - Section 1, 3, 4)
+    // Validate common deadline if provided
+    if (dueDate) {
+      const check = validateWorkingDayDeadline(dueDate);
+      if (!check.valid) {
+        return NextResponse.json(
+          {
+            error: `Common deadline validation rejected: ${check.error}. Assignment deadlines are strictly restricted to Monday–Friday working days.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate individual deadlines in bulk request
+    if (individualDeadlines) {
+      for (const [gId, customDate] of Object.entries(individualDeadlines)) {
+        if (customDate) {
+          const check = validateWorkingDayDeadline(customDate);
+          if (!check.valid) {
+            // Fetch group name for clear error diagnosis
+            const targetGroup = await prisma.ransomwareGroup.findUnique({
+              where: { id: gId },
+              select: { name: true },
+            });
+            return NextResponse.json(
+              {
+                error: `Individual deadline validation rejected for syndicate "${targetGroup?.name || gId}": ${check.error}. The entire bulk batch has been aborted without creating partial assignments.`,
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
 
     const finalReviewerId = reviewerId || caller.id;
     const isBulk = groupIds.length > 1;
@@ -131,6 +186,18 @@ export async function POST(req: NextRequest) {
       const group = await prisma.ransomwareGroup.findUnique({ where: { id: groupId } });
       const taskTitle = isBulk ? `${title} — ${group?.name || 'Group'}` : title;
 
+      // Determine final deadline for this specific assignment
+      const specificDueDateStr = individualDeadlines?.[groupId] || dueDate;
+      let finalDueDate: Date | undefined = undefined;
+      if (specificDueDateStr) {
+        // Parse to end of calendar day in Asia/Kolkata (11:59:59.999 PM IST)
+        const check = validateWorkingDayDeadline(specificDueDateStr);
+        if (!check.valid) {
+          throw new Error(check.error);
+        }
+        finalDueDate = parseISTCalendarDateToEndOfDay(check.dateString!);
+      }
+
       const assignment = await prisma.assignment.create({
         data: {
           batchId,
@@ -142,7 +209,9 @@ export async function POST(req: NextRequest) {
           instructions,
           priority: priority as AssignmentPriority,
           status: AssignmentStatus.ASSIGNED,
-          dueDate: dueDate ? new Date(dueDate) : undefined,
+          dueDate: finalDueDate,
+          deadlineVersion: 1,
+          isLegacyWeekendDeadline: false,
           checklistItems: {
             create: DEFAULT_CHECKLIST_ITEMS.map((item) => ({
               itemKey: item.itemKey,
@@ -156,7 +225,7 @@ export async function POST(req: NextRequest) {
               actorId: caller.id,
               eventType: 'ASSIGNED',
               newStatus: AssignmentStatus.ASSIGNED,
-              reason: `Allocated by ${caller.fullName}`,
+              reason: `Allocated by ${caller.fullName}${finalDueDate ? ` with working-day deadline ${specificDueDateStr}` : ''}`,
             },
           },
         },
@@ -164,6 +233,15 @@ export async function POST(req: NextRequest) {
           group: { select: { name: true } },
         },
       });
+
+      // Schedule durable working-day reminders
+      if (finalDueDate) {
+        await rescheduleAssignmentReminders({
+          assignmentId: assignment.id,
+          dueDate: finalDueDate,
+          newDeadlineVersion: 1,
+        });
+      }
 
       // Create in-platform notification for assigned analyst
       await prisma.notification.create({
@@ -196,12 +274,13 @@ export async function POST(req: NextRequest) {
         primaryAnalystId,
         reviewerId: finalReviewerId,
         priority,
+        dueDate,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Successfully allocated ${createdAssignments.length} research assignment(s).`,
+      message: `Successfully allocated ${createdAssignments.length} research assignment(s) with validated working-day schedules.`,
       assignments: createdAssignments,
     });
   } catch (error: any) {
@@ -209,6 +288,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Administrative privileges required' }, { status: 403 });
     }
     console.error('[Assignments POST] Error:', error);
-    return NextResponse.json({ error: 'Failed to create assignments' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to create assignments' }, { status: 500 });
   }
 }

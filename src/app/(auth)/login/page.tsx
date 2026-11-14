@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { AnimatedLogo } from '@/components/brand/AnimatedLogo';
+import { ThreatLedgerLogo } from '@/components/brand/ThreatLedgerLogo';
 import { Eye, EyeOff, ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -66,7 +66,7 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-[#060a12] flex items-center justify-center p-6 text-slate-400">
         <div className="flex flex-col items-center gap-4">
-          <AnimatedLogo size={70} />
+          <ThreatLedgerLogo variant="loading" animated />
           <span className="text-sm font-medium tracking-wide animate-pulse">Initializing ThreatLedger Gateway...</span>
         </div>
       </div>
@@ -98,7 +98,7 @@ export default function LoginPage() {
 
         {/* Centerpiece Animated Brand Visual */}
         <div className="relative z-10 my-auto flex flex-col items-start max-w-lg">
-          <AnimatedLogo size={110} />
+          <ThreatLedgerLogo variant="login" animated />
           <h1 className="text-4xl font-extrabold tracking-tight mt-6 text-white leading-tight">
             Threat<span className="text-emerald-400">Ledger</span>
           </h1>
@@ -134,7 +134,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md space-y-8">
           {/* Mobile Brand Banner */}
           <div className="lg:hidden flex flex-col items-center text-center">
-            <AnimatedLogo size={70} />
+            <ThreatLedgerLogo variant="loading" animated />
             <h2 className="text-2xl font-bold mt-4 text-white">
               Threat<span className="text-emerald-400">Ledger</span>
             </h2>

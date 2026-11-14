@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AnimatedLogo } from '@/components/brand/AnimatedLogo';
+import { ThreatLedgerLogo } from '@/components/brand/ThreatLedgerLogo';
 import { UserRole } from '@prisma/client';
 import {
   LayoutDashboard,
@@ -78,10 +78,18 @@ export function Sidebar({ userRole = UserRole.ANALYST, userFullName, userEmail, 
 
   return (
     <aside className="w-64 shrink-0 bg-[#070b14] border-r border-slate-800/80 flex flex-col h-screen select-none">
-      {/* Brand Header with Animated Mark */}
+      {/* Brand Header with Official Logo */}
       <div className="h-16 flex items-center px-4 border-b border-slate-800/80 bg-[#090f1d]/50">
         <Link href="/dashboard" className="flex items-center gap-2.5 group">
-          <AnimatedLogo size={36} showText={true} subtitle="" />
+          <ThreatLedgerLogo variant="sidebar" animated />
+          <div className="flex flex-col">
+            <span className="font-extrabold text-white text-sm tracking-tight leading-none group-hover:text-emerald-400 transition-colors">
+              Threat<span className="text-emerald-400">Ledger</span>
+            </span>
+            <span className="text-[9px] font-semibold tracking-wider text-slate-500 uppercase mt-0.5">
+              CTI Operations
+            </span>
+          </div>
         </Link>
       </div>
 

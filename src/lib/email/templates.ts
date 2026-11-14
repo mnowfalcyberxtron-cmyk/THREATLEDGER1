@@ -139,6 +139,7 @@ function baseTemplate({
   <div class="wrapper">
     <div class="tlp-banner">${classification}</div>
     <div class="header">
+      <img src="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/brand/threatledger-logo.png" alt="ThreatLedger logo" width="32" height="36" style="vertical-align: middle; margin-right: 12px; display: inline-block;">
       <span class="brand-title">ThreatLedger</span>
       <span class="brand-tag">CTI Operations</span>
     </div>

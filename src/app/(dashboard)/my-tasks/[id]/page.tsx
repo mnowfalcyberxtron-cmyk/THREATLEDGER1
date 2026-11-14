@@ -23,9 +23,13 @@ import {
   Check,
   Copy,
   Plus,
+  Calendar as CalendarIcon,
+  History,
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
+import { WeekdayDatePicker } from '@/components/ui/WeekdayDatePicker';
+import { getWorkingDayDeadlineStatus } from '@/lib/datetime/working-days';
 
 export default function AnalystTaskWorkbench() {
   const params = useParams();
@@ -59,6 +63,12 @@ export default function AnalystTaskWorkbench() {
 
   // Copy hash state
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Deadline Edit Modal state
+  const [showDeadlineModal, setShowDeadlineModal] = useState(false);
+  const [newDeadlineDate, setNewDeadlineDate] = useState('');
+  const [deadlineReason, setDeadlineReason] = useState('');
+  const [updatingDeadline, setUpdatingDeadline] = useState(false);
 
   async function loadTask() {
     if (!taskId) return;
@@ -152,6 +162,37 @@ export default function AnalystTaskWorkbench() {
       alert('Network error processing transition');
     } finally {
       setTransitioning(false);
+    }
+  };
+
+  const handleUpdateDeadline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDeadlineDate) return;
+
+    setUpdatingDeadline(true);
+    try {
+      const res = await fetch(`/api/assignments/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dueDate: newDeadlineDate,
+          deadlineReason,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to update deadline');
+      } else {
+        alert(data.message || 'Deadline updated successfully');
+        setShowDeadlineModal(false);
+        setDeadlineReason('');
+        loadTask();
+      }
+    } catch {
+      alert('Network error updating deadline');
+    } finally {
+      setUpdatingDeadline(false);
     }
   };
 
@@ -419,9 +460,39 @@ export default function AnalystTaskWorkbench() {
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">
                 {assignment.status}
               </span>
-              <span className="text-xs text-slate-500">
-                Due: <strong className="text-white font-mono">{assignment.dueDate ? formatIST(assignment.dueDate) : 'No Deadline'}</strong>
-              </span>
+              {(() => {
+                const status = getWorkingDayDeadlineStatus(assignment.dueDate);
+                return (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-400">
+                      Due: <strong className="text-white font-mono">{status.dueDateFormatted}</strong>
+                    </span>
+                    {assignment.dueDate && (
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        status.badgeVariant === 'rose'
+                          ? 'bg-rose-950 text-rose-300 border border-rose-500/40'
+                          : status.badgeVariant === 'amber'
+                          ? 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                          : status.badgeVariant === 'emerald'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                          : 'text-slate-500'
+                      }`}>
+                        {status.label}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewDeadlineDate(assignment.dueDate ? assignment.dueDate.split('T')[0] : '');
+                        setShowDeadlineModal(true);
+                      }}
+                      className="text-[11px] text-emerald-400 hover:text-emerald-300 underline font-medium ml-1"
+                    >
+                      Modify Schedule
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
 
             <h1 className="text-2xl font-extrabold text-white tracking-tight">{assignment.title}</h1>
@@ -937,6 +1008,120 @@ export default function AnalystTaskWorkbench() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Deadline Modification History Card (Section 9) */}
+      {assignment.deadlineHistory && assignment.deadlineHistory.length > 0 && (
+        <div className="p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <h3 className="text-xs font-bold text-white flex items-center gap-2">
+              <History className="w-4 h-4 text-emerald-400" />
+              <span>Assignment Deadline Modification History (Section 9 Compliance)</span>
+            </h3>
+            <span className="text-[10px] text-slate-500 font-mono">
+              Version {assignment.deadlineVersion}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {assignment.deadlineHistory.map((h: any) => (
+              <div
+                key={h.id}
+                className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">Previous:</span>
+                    <span className="text-slate-300 font-mono line-through">
+                      {h.oldDueDate ? formatIST(h.oldDueDate) : 'None'}
+                    </span>
+                    <span className="text-emerald-400 font-bold">➔</span>
+                    <span className="text-emerald-300 font-mono font-bold">
+                      {h.newDueDate ? formatIST(h.newDueDate) : 'Cleared'}
+                    </span>
+                  </div>
+                  {h.reason && (
+                    <p className="text-[11px] text-slate-400 italic">
+                      Reason: "{h.reason}"
+                    </p>
+                  )}
+                </div>
+
+                <div className="text-right text-[10px] text-slate-500 shrink-0">
+                  <span className="block text-slate-300 font-medium">{h.changedBy?.fullName}</span>
+                  <span className="font-mono">{formatIST(h.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Deadline Edit Modal */}
+      {showDeadlineModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl bg-[#0a101f] border border-slate-800 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <CalendarIcon className="w-4 h-4 text-emerald-400" />
+                <span>Modify Working-Day Deadline</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeadlineModal(false)}
+                disabled={updatingDeadline}
+                className="text-slate-400 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateDeadline} className="space-y-4 text-xs">
+              <WeekdayDatePicker
+                value={newDeadlineDate}
+                onChange={setNewDeadlineDate}
+                label="New Working-Day Deadline (IST)"
+                required
+              />
+
+              <div>
+                <label className="block font-semibold text-slate-300 mb-1">
+                  Reason for Deadline Change *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={deadlineReason}
+                  onChange={(e) => setDeadlineReason(e.target.value)}
+                  placeholder="Operational justification for deadline modification or extension..."
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                />
+              </div>
+
+              <div className="p-3 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
+                Modifying the deadline automatically invalidates pending reminder dispatches and generates a new working-day reminder schedule.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowDeadlineModal(false)}
+                  disabled={updatingDeadline}
+                  className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingDeadline || !newDeadlineDate}
+                  className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-md shadow-emerald-500/20 disabled:opacity-50"
+                >
+                  {updatingDeadline ? 'Updating...' : 'Save Working-Day Deadline'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

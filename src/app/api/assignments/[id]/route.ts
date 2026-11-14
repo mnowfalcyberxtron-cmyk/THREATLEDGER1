@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
+import { validateWorkingDayDeadline, parseISTCalendarDateToEndOfDay } from '@/lib/datetime/working-days';
+import { rescheduleAssignmentReminders } from '@/lib/services/reminder-engine';
 import { AssignmentPriority, UserRole } from '@prisma/client';
 
 export async function GET(
@@ -54,6 +56,15 @@ export async function GET(
         events: {
           orderBy: { createdAt: 'desc' },
         },
+        deadlineHistory: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            changedBy: { select: { id: true, fullName: true, role: true } },
+          },
+        },
+        reminders: {
+          orderBy: { scheduledFor: 'asc' },
+        },
       },
     });
 
@@ -91,61 +102,171 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const caller = await requireAuth(UserRole.ADMIN);
+    const caller = await requireAuth(UserRole.ANALYST);
     const { id } = await params;
     const body = await req.json();
 
     const existing = await prisma.assignment.findUnique({
       where: { id },
-      include: { primaryAnalyst: true },
+      include: { primaryAnalyst: true, reviewer: true, assigner: true },
     });
 
     if (!existing) {
       return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
     }
 
-    const { priority, dueDate, instructions, primaryAnalystId, reviewerId } = body;
+    // Role permission check for modifying deadline or reassignment (PART 1 - Section 13)
+    const isAdmin = caller.role === UserRole.ADMIN || caller.role === UserRole.SUPER_ADMIN;
+    const isAssigner = existing.assignerId === caller.id;
+    const isReviewer = existing.reviewerId === caller.id;
+
+    const {
+      priority,
+      dueDate,
+      deadlineReason,
+      instructions,
+      primaryAnalystId,
+      reviewerId,
+    } = body;
+
+    // Analysts are strictly forbidden from modifying deadlines or reassigning tasks
+    if ((dueDate !== undefined || primaryAnalystId !== undefined) && !isAdmin && !isAssigner && !isReviewer) {
+      return NextResponse.json(
+        { error: 'Permission denied: Only administrators, assigners, or reviewers can modify deadlines or reassign tasks.' },
+        { status: 403 }
+      );
+    }
 
     const dataToUpdate: any = {};
-    if (priority && Object.values(AssignmentPriority).includes(priority)) dataToUpdate.priority = priority;
-    if (dueDate !== undefined) dataToUpdate.dueDate = dueDate ? new Date(dueDate) : null;
-    if (instructions !== undefined) dataToUpdate.instructions = instructions;
+    if (priority && Object.values(AssignmentPriority).includes(priority)) {
+      dataToUpdate.priority = priority;
+    }
+    if (instructions !== undefined) {
+      dataToUpdate.instructions = instructions;
+    }
+
+    let isDeadlineChanged = false;
+    let finalDueDate: Date | null = null;
+    let newDeadlineVersion = existing.deadlineVersion;
+
+    // Handle Deadline Modification with Mandatory Monday-Friday validation
+    if (dueDate !== undefined) {
+      if (dueDate === null || dueDate === '') {
+        // Clear deadline
+        finalDueDate = null;
+        isDeadlineChanged = existing.dueDate !== null;
+      } else {
+        // Validate working-day requirement
+        const check = validateWorkingDayDeadline(dueDate);
+        if (!check.valid) {
+          return NextResponse.json(
+            {
+              error: `Invalid assignment deadline: ${check.error}. All deadlines throughout ThreatLedger must follow a strict Monday-to-Friday schedule.`,
+            },
+            { status: 400 }
+          );
+        }
+        finalDueDate = parseISTCalendarDateToEndOfDay(check.dateString!);
+        isDeadlineChanged = !existing.dueDate || existing.dueDate.getTime() !== finalDueDate.getTime();
+      }
+
+      if (isDeadlineChanged) {
+        newDeadlineVersion = existing.deadlineVersion + 1;
+        dataToUpdate.dueDate = finalDueDate;
+        dataToUpdate.deadlineVersion = newDeadlineVersion;
+        dataToUpdate.isLegacyWeekendDeadline = false; // Resolved
+      }
+    }
+
+    // Handle Reassignment
     if (primaryAnalystId && primaryAnalystId !== existing.primaryAnalystId) {
+      if (!isAdmin && !isAssigner) {
+        return NextResponse.json({ error: 'Only administrators or the assigner can reassign tasks' }, { status: 403 });
+      }
       dataToUpdate.primaryAnalystId = primaryAnalystId;
-      // Record reassignment event
-      await prisma.assignmentEvent.create({
-        data: {
-          assignmentId: id,
-          actorId: caller.id,
-          eventType: 'REASSIGNED',
-          oldStatus: existing.status,
-          newStatus: existing.status,
-          reason: `Reassigned from ${existing.primaryAnalyst.fullName} by ${caller.fullName}`,
-        },
+    }
+    if (reviewerId && (isAdmin || isAssigner)) {
+      dataToUpdate.reviewerId = reviewerId;
+    }
+
+    // Execute atomic update
+    const updated = await prisma.$transaction(async (tx) => {
+      const res = await tx.assignment.update({
+        where: { id },
+        data: dataToUpdate,
+      });
+
+      // Record deadline history if modified
+      if (isDeadlineChanged) {
+        await tx.assignmentDeadlineHistory.create({
+          data: {
+            assignmentId: id,
+            oldDueDate: existing.dueDate,
+            newDueDate: finalDueDate,
+            changedById: caller.id,
+            reason: deadlineReason || 'Deadline updated in assignment workbench',
+          },
+        });
+
+        await tx.assignmentEvent.create({
+          data: {
+            assignmentId: id,
+            actorId: caller.id,
+            eventType: 'DEADLINE_CHANGED',
+            oldStatus: existing.status,
+            newStatus: existing.status,
+            reason: `Deadline changed by ${caller.fullName}: ${deadlineReason || 'Schedule updated'}.`,
+          },
+        });
+      }
+
+      // Record reassignment event if changed
+      if (primaryAnalystId && primaryAnalystId !== existing.primaryAnalystId) {
+        await tx.assignmentEvent.create({
+          data: {
+            assignmentId: id,
+            actorId: caller.id,
+            eventType: 'REASSIGNED',
+            oldStatus: existing.status,
+            newStatus: existing.status,
+            reason: `Reassigned from ${existing.primaryAnalyst.fullName} by ${caller.fullName}`,
+          },
+        });
+      }
+
+      return res;
+    });
+
+    // Invalidate old reminder schedule and register new one
+    if (isDeadlineChanged && finalDueDate) {
+      await rescheduleAssignmentReminders({
+        assignmentId: id,
+        dueDate: finalDueDate,
+        newDeadlineVersion,
       });
     }
-    if (reviewerId) dataToUpdate.reviewerId = reviewerId;
-
-    const updated = await prisma.assignment.update({
-      where: { id },
-      data: dataToUpdate,
-    });
 
     await recordAuditLog({
       actorId: caller.id,
       actorName: caller.fullName,
       actorEmail: caller.email,
-      action: 'ASSIGNMENT_UPDATED',
+      action: isDeadlineChanged ? 'ASSIGNMENT_DEADLINE_MODIFIED' : 'ASSIGNMENT_UPDATED',
       targetType: 'ASSIGNMENT',
       targetId: id,
-      afterJson: dataToUpdate,
+      beforeJson: { dueDate: existing.dueDate, primaryAnalystId: existing.primaryAnalystId },
+      afterJson: { dueDate: finalDueDate, deadlineReason, primaryAnalystId },
     });
 
-    return NextResponse.json({ success: true, assignment: updated });
+    return NextResponse.json({
+      success: true,
+      message: isDeadlineChanged ? 'Assignment deadline updated with working-day validation.' : 'Assignment updated.',
+      assignment: updated,
+    });
   } catch (error: any) {
     if (error.message === 'UNAUTHORIZED' || error.message === 'FORBIDDEN') {
       return NextResponse.json({ error: 'Administrative privileges required' }, { status: 403 });
     }
-    return NextResponse.json({ error: 'Failed to update assignment' }, { status: 500 });
+    console.error('[Assignment PATCH Error]:', error);
+    return NextResponse.json({ error: error.message || 'Failed to update assignment' }, { status: 500 });
   }
 }

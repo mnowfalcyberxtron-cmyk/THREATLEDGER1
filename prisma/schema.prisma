@@ -147,6 +147,7 @@ model UserProfile {
   createdTasks     Assignment[] @relation("TaskAssigner")
   reviewedTasks    Assignment[] @relation("TaskReviewer")
   assignmentNotes  AssignmentNote[]
+  deadlineChanges  AssignmentDeadlineHistory[]
   notifications    Notification[]
   auditLogs        AuditLog[]
 
@@ -354,6 +355,8 @@ model Assignment {
   priority             AssignmentPriority   @default(MEDIUM)
   status               AssignmentStatus     @default(ASSIGNED)
   dueDate              DateTime?
+  deadlineVersion      Int                  @default(1)
+  isLegacyWeekendDeadline Boolean           @default(false)
   acceptedAt           DateTime?
   submittedAt          DateTime?
   submittedById        String?
@@ -375,6 +378,8 @@ model Assignment {
   checklistItems       AssignmentChecklistItem[]
   notes                AssignmentNote[]
   events               AssignmentEvent[]
+  deadlineHistory      AssignmentDeadlineHistory[]
+  reminders            AssignmentReminderSchedule[]
   reports              ResearchReport[]
   evidence             SupportingEvidence[]
 
@@ -430,6 +435,39 @@ model AssignmentEvent {
   assignment   Assignment        @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
 
   @@index([assignmentId, createdAt])
+}
+
+model AssignmentDeadlineHistory {
+  id           String      @id @default(uuid())
+  assignmentId String
+  oldDueDate   DateTime?
+  newDueDate   DateTime?
+  changedById  String
+  reason       String?     @db.Text
+  createdAt    DateTime    @default(now())
+
+  assignment   Assignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  changedBy    UserProfile @relation(fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId])
+  @@index([createdAt])
+}
+
+model AssignmentReminderSchedule {
+  id              String      @id @default(uuid())
+  assignmentId    String
+  deadlineVersion Int
+  reminderType    String      // "TWO_DAYS_BEFORE", "ONE_DAY_BEFORE", "ON_DUE_DATE", "OVERDUE"
+  scheduledFor    DateTime
+  status          String      @default("PENDING") // "PENDING", "SENT", "CANCELLED", "FAILED"
+  sentAt          DateTime?
+  errorMessage    String?     @db.Text
+  createdAt       DateTime    @default(now())
+
+  assignment      Assignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([assignmentId, deadlineVersion])
+  @@index([scheduledFor, status])
 }
 
 // ----------------------------------------------------
