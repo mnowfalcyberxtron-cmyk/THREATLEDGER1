@@ -32,7 +32,7 @@ export async function GET(
           select: { id: true, fullName: true },
         },
         reviewer: {
-          select: { id: true, fullName: true, role: true },
+          select: { id: true, fullName: true, role: true, user: { select: { email: true } } },
         },
         checklistItems: {
           orderBy: { orderIndex: 'asc' },
@@ -48,6 +48,13 @@ export async function GET(
             versions: {
               orderBy: { versionNumber: 'desc' },
             },
+          },
+        },
+        reportSubmissions: {
+          orderBy: { versionNumber: 'desc' },
+          include: {
+            submittedBy: { select: { id: true, fullName: true } },
+            attachments: true,
           },
         },
         evidence: {

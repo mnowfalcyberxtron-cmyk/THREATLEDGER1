@@ -99,6 +99,23 @@ export async function POST(
         });
       }
 
+      // Update latest ReportSubmission if exists
+      const latestSubmission = await tx.reportSubmission.findFirst({
+        where: { assignmentId },
+        orderBy: { versionNumber: 'desc' },
+      });
+      if (latestSubmission) {
+        await tx.reportSubmission.update({
+          where: { id: latestSubmission.id },
+          data: {
+            reviewStatus: targetReviewStatus,
+            reviewerComments: comments || undefined,
+            reviewedById: caller.id,
+            reviewedAt: new Date(),
+          },
+        });
+      }
+
       // Update Assignment with separate review/approval metadata
       const assignmentUpdateData: any = {
         status: targetAssignmentStatus,

@@ -150,6 +150,7 @@ model UserProfile {
   deadlineChanges  AssignmentDeadlineHistory[]
   notifications    Notification[]
   auditLogs        AuditLog[]
+  reportSubmissions ReportSubmission[] @relation("ReportSubmitter")
 
   @@index([role])
 }
@@ -382,6 +383,14 @@ model Assignment {
   reminders            AssignmentReminderSchedule[]
   reports              ResearchReport[]
   evidence             SupportingEvidence[]
+  reportSubmissions    ReportSubmission[]
+
+  recipientOverrideEmail String?
+  recipientOverrideReason String?              @db.Text
+  recipientOverrideById String?
+  recipientOverrideAt  DateTime?
+  ccEmails             String?
+  bccEmails            String?
 
   @@index([groupId])
   @@index([primaryAnalystId])
@@ -564,22 +573,117 @@ model Notification {
 }
 
 model EmailOutbox {
-  id                String        @id @default(uuid())
-  recipientEmail    String
-  subject           String
-  templateType      String
-  provider          EmailProvider @default(SMTP)
-  status            EmailStatus   @default(PENDING)
-  attempts          Int           @default(0)
-  providerMessageId String?
-  errorMessage      String?       @db.Text
-  idempotencyKey    String        @unique
-  hasAttachment     Boolean       @default(false)
-  createdAt         DateTime      @default(now())
-  sentAt            DateTime?
+  id                          String        @id @default(uuid())
+  recipientEmail              String
+  subject                     String
+  templateType                String
+  provider                    EmailProvider @default(SMTP)
+  status                      EmailStatus   @default(PENDING)
+  attempts                    Int           @default(0)
+  providerMessageId           String?
+  errorMessage                String?       @db.Text
+  idempotencyKey              String        @unique
+  hasAttachment               Boolean       @default(false)
+  submissionId                String?
+  reportId                    String?
+  senderAddress               String?
+  lastErrorCode               String?
+  lastErrorMessageSanitized   String?       @db.Text
+  createdAt                   DateTime      @default(now())
+  sentAt                      DateTime?
 
   @@index([status])
   @@index([idempotencyKey])
+}
+
+model EmailConfiguration {
+  id                   String   @id @default(uuid())
+  senderEmail          String
+  senderDisplayName    String   @default("ThreatLedger")
+  encryptedAppPassword String
+  encryptionIv         String
+  encryptionTag        String
+  replyToEmail         String?
+  archiveBccEmail      String?
+  smtpHost             String   @default("smtp.gmail.com")
+  smtpPort             Int      @default(465)
+  status               String   @default("NOT_CONFIGURED") // NOT_CONFIGURED, CONNECTED, CONNECTION_FAILED, AUTH_EXPIRED
+  lastTestedAt         DateTime?
+  lastSuccessAt        DateTime?
+  lastFailureAt        DateTime?
+  lastErrorMessage     String?  @db.Text
+  maxAttachmentBytes   Int      @default(18874368) // 18 MB default
+  updatedById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model EmailTemplateConfig {
+  id          String   @id @default(uuid())
+  templateKey String   @unique
+  name        String
+  subject     String
+  bodyText    String   @db.Text
+  bodyHtml    String?  @db.Text
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+model ReportSubmission {
+  id                      String                 @id @default(uuid())
+  assignmentId            String
+  versionNumber           Int                    @default(1)
+  submittedById           String
+  submittedAt             DateTime               @default(now())
+  senderEmail             String
+  recipientEmail          String
+  recipientOverrideActive Boolean                @default(false)
+  ccEmails                String?
+  bccEmails               String?
+  emailSubject            String
+  emailMessageId          String?
+  providerMessageId       String?
+  emailStatus             String                 @default("PENDING") // PENDING, ACCEPTED_BY_GMAIL, FAILED, RETRY_PENDING
+  emailAcceptedAt         DateTime?
+  cleanupStatus           String                 @default("PENDING") // PENDING, CLEANED, FAILED, RETAINED_ON_FAILURE
+  cleanedAt               DateTime?
+  cleanupErrorMessage     String?                @db.Text
+  totalAttachmentBytes    Int                    @default(0)
+  attemptCount            Int                    @default(0)
+  lastErrorMessage        String?                @db.Text
+  reviewStatus            ReviewStatus           @default(PENDING_REVIEW)
+  reviewerComments        String?                @db.Text
+  reviewedById            String?
+  reviewedAt              DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  assignment              Assignment             @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  submittedBy             UserProfile            @relation("ReportSubmitter", fields: [submittedById], references: [id])
+  attachments             SubmissionAttachment[]
+
+  @@unique([assignmentId, versionNumber])
+  @@index([assignmentId])
+  @@index([emailStatus])
+  @@index([cleanupStatus])
+  @@index([submittedAt])
+}
+
+model SubmissionAttachment {
+  id              String           @id @default(uuid())
+  submissionId    String
+  filename        String
+  fileSize        Int
+  mimeType        String
+  sha256          String
+  fileCategory    String           // "REPORT" or "EVIDENCE"
+  tempStoragePath String?
+  isCleanedUp     Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+
+  submission      ReportSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
 }
 
 // ----------------------------------------------------

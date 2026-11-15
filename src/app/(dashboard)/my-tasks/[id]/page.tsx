@@ -25,6 +25,7 @@ import {
   Plus,
   Calendar as CalendarIcon,
   History,
+  Mail,
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
@@ -69,6 +70,14 @@ export default function AnalystTaskWorkbench() {
   const [newDeadlineDate, setNewDeadlineDate] = useState('');
   const [deadlineReason, setDeadlineReason] = useState('');
   const [updatingDeadline, setUpdatingDeadline] = useState(false);
+
+  // Email-Based Report Staging & Submission State (Section 3, 5, 7, 9)
+  const [stagedFiles, setStagedFiles] = useState<any[]>([]);
+  const [stagingUpload, setStagingUpload] = useState(false);
+  const [stagingProgress, setStagingProgress] = useState('');
+  const [submissionNotes, setSubmissionNotes] = useState('');
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [stageFileCategory, setStageFileCategory] = useState<'REPORT' | 'EVIDENCE'>('REPORT');
 
   async function loadTask() {
     if (!taskId) return;
@@ -345,6 +354,104 @@ export default function AnalystTaskWorkbench() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleStageFileUpload = async (file: File, category: 'REPORT' | 'EVIDENCE') => {
+    const currentTotal = stagedFiles.reduce((sum, f) => sum + f.fileSize, 0);
+    const maxBytes = 18 * 1024 * 1024;
+    if (currentTotal + file.size > maxBytes) {
+      alert(
+        `Cannot add "${file.name}": Total combined attachments would exceed the 18 MB Gmail ceiling (${((currentTotal + file.size) / (1024 * 1024)).toFixed(1)} MB).`
+      );
+      return;
+    }
+
+    setStagingUpload(true);
+    setStagingProgress(`Staging "${file.name}" for email dispatch...`);
+
+    try {
+      const formData = new FormData();
+      formData.append('assignmentId', taskId);
+      formData.append('fileCategory', category);
+      formData.append('file', file);
+
+      const res = await fetch('/api/files/upload/stage', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to stage file');
+      }
+
+      setStagedFiles((prev) => [
+        ...prev,
+        {
+          filename: data.filename,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          sha256: data.sha256,
+          storagePath: data.storagePath,
+          fileCategory: category,
+        },
+      ]);
+    } catch (err: any) {
+      alert(err.message || 'Failed to stage file');
+    } finally {
+      setStagingUpload(false);
+      setStagingProgress('');
+    }
+  };
+
+  const handleRemoveStagedFile = (index: number) => {
+    setStagedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmitReportForReview = async () => {
+    if (stagedFiles.length === 0) {
+      alert('Please upload and stage at least one final report document before submitting for review.');
+      setActiveTab('REPORTS');
+      return;
+    }
+
+    const hasReport = stagedFiles.some((f) => f.fileCategory === 'REPORT');
+    if (!hasReport) {
+      alert('A primary report document (PDF, Word, or Spreadsheet) is required in the staged package.');
+      setActiveTab('REPORTS');
+      return;
+    }
+
+    const confirmSubmit = confirm(
+      `Submit report package with ${stagedFiles.length} file(s) for independent review?\n\nThis will send an email with physical attachments to your assigned reviewer and archive the message in the ThreatLedger sender Gmail Sent folder.`
+    );
+    if (!confirmSubmit) return;
+
+    setSubmittingReport(true);
+    try {
+      const res = await fetch(`/api/assignments/${taskId}/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stagedFiles,
+          submissionNotes: submissionNotes || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Submission failed');
+      } else {
+        alert(data.message);
+        setStagedFiles([]);
+        setSubmissionNotes('');
+        loadTask();
+      }
+    } catch {
+      alert('Network failure submitting report package');
+    } finally {
+      setSubmittingReport(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-16 text-center text-xs text-slate-500">
@@ -417,19 +524,17 @@ export default function AnalystTaskWorkbench() {
               </button>
               <button
                 onClick={() => {
-                  if (reportVersions.length === 0) {
-                    alert('Please upload at least one final research report version before submitting for review.');
+                  if (stagedFiles.length === 0) {
+                    setActiveTab('REPORTS');
+                    alert('Please stage your report document and supporting evidence in the Deliverables tab before submitting.');
                     return;
                   }
-                  const reason = prompt('Confirm submission notes for reviewer:');
-                  if (reason !== null) {
-                    handleStatusTransition('SUBMITTED_FOR_REVIEW', reason);
-                  }
+                  handleSubmitReportForReview();
                 }}
-                disabled={transitioning}
-                className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20"
+                disabled={transitioning || submittingReport}
+                className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 disabled:opacity-50"
               >
-                Submit for Review
+                {submittingReport ? 'Dispatching to Gmail...' : 'Submit for Review'}
               </button>
             </>
           )}
@@ -678,123 +783,336 @@ export default function AnalystTaskWorkbench() {
         </div>
       )}
 
-      {/* Tab 2: Research Reports Deliverables (Multi-versioning & Section 31 R2 archive) */}
+      {/* Tab 2: Research Reports Deliverables & Gmail Document Archive */}
       {activeTab === 'REPORTS' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-emerald-400" />
-                  Research Deliverables & Version History
-                </h2>
-                <span className="text-[11px] text-slate-500">
-                  Direct-to-R2 private storage with automatic version progression
-                </span>
-              </div>
-              <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-900 border border-slate-800 text-emerald-400">
-                {reportVersions.length} Versions
+        <div className="space-y-6">
+          {/* Destination & Recipient Verification Banner */}
+          <div className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                Designated Reviewer Destination
               </span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-white font-bold text-xs">
+                  {assignment.recipientOverrideEmail || assignment.reviewer?.user?.email || 'reviewer@threatledger.internal'}
+                </span>
+                {assignment.recipientOverrideEmail ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-500/30">
+                    Administrator Override Active
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-500/30">
+                    Assigned Peer Reviewer
+                  </span>
+                )}
+              </div>
             </div>
 
-            {reportVersions.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500">
-                No formal report versions uploaded yet. Upload version 1 below.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {reportVersions.map((v: any) => (
-                  <div
-                    key={v.id}
-                    className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded font-bold font-mono text-[11px] bg-emerald-950 text-emerald-400 border border-emerald-500/30">
-                          v{v.versionNumber}
-                        </span>
-                        <span className="font-bold text-white">{v.filename}</span>
-                        <span className="text-[11px] text-slate-500">
-                          ({(v.fileSize / 1024).toFixed(1)} KB)
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                        <span>Uploaded: {formatIST(v.createdAt)}</span>
-                        <span className="font-mono text-slate-500">
-                          SHA: {v.sha256?.substring(0, 16)}...
-                        </span>
-                      </div>
-                      {v.reviewerComments && (
-                        <p className="text-[11px] text-amber-300 bg-amber-950/40 p-2 rounded border border-amber-500/30 mt-1">
-                          Reviewer feedback: {v.reviewerComments}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        v.reviewStatus === 'APPROVED'
-                          ? 'bg-emerald-500 text-slate-950'
-                          : v.reviewStatus === 'CHANGES_REQUESTED'
-                          ? 'bg-amber-500 text-slate-950'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}>
-                        {v.reviewStatus}
-                      </span>
-                      <button
-                        onClick={() => handleDownloadFile(v.id)}
-                        className="p-2 rounded bg-slate-800 hover:bg-slate-700 text-white font-medium inline-flex items-center gap-1.5 transition-colors"
-                        title="Download authorized copy"
-                      >
-                        <Download className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Download</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="text-[11px] text-slate-400 sm:text-right">
+              <span className="text-slate-500 block">Archive Destination</span>
+              <span className="font-semibold text-white">Gmail Sent Folder (Real MIME Attachments)</span>
+            </div>
           </div>
 
-          {/* Upload New Version Box */}
-          <div className="lg:col-span-4 p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4 text-xs">
-            <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <Upload className="w-4 h-4 text-emerald-400" />
-              Upload New Report Version
-            </h3>
-            <p className="text-slate-400 leading-relaxed text-[11px]">
-              Directly upload PDF, DOCX, or Excel report deliverables to private Cloudflare R2 bucket.
-            </p>
-
-            <form onSubmit={handleDirectReportUpload} className="space-y-3">
-              <div>
-                <input
-                  type="file"
-                  required
-                  accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.pptx"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setReportFile(e.target.files[0]);
-                    }
-                  }}
-                  className="w-full text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-900 file:text-white hover:file:bg-slate-800"
-                />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Email Document Archive & Submission History */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-emerald-400" />
+                    Email Document Archive & Submissions
+                  </h2>
+                  <span className="text-[11px] text-slate-500">
+                    Original submitted documents are retained in the sender Gmail Sent folder
+                  </span>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-900 border border-slate-800 text-emerald-400">
+                  {assignment.reportSubmissions?.length || 0} Submissions
+                </span>
               </div>
 
-              {reportUploadProgress && (
-                <div className="p-2.5 rounded bg-slate-900 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] animate-pulse">
-                  {reportUploadProgress}
+              {(!assignment.reportSubmissions || assignment.reportSubmissions.length === 0) ? (
+                <div className="py-12 text-center text-xs text-slate-500 rounded-xl bg-slate-900/40 border border-slate-800/80 p-6 space-y-2">
+                  <FileText className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="text-white font-semibold">No report submissions recorded yet.</p>
+                  <p className="text-slate-400 max-w-sm mx-auto">
+                    Stage your final research report and supporting evidence on the right, then submit for review.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {assignment.reportSubmissions.map((sub: any) => (
+                    <div
+                      key={sub.id}
+                      className="p-4 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3 text-xs"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded font-mono font-bold text-xs bg-emerald-950 text-emerald-400 border border-emerald-500/30">
+                            Version v{sub.versionNumber}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            sub.emailStatus === 'ACCEPTED_BY_GMAIL'
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              : sub.emailStatus === 'FAILED'
+                              ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          }`}>
+                            {sub.emailStatus}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
+                            Temporary: {sub.cleanupStatus}
+                          </span>
+                        </div>
+
+                        <a
+                          href={`https://mail.google.com/mail/u/0/#search/subject%3A${encodeURIComponent(sub.emailSubject)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1.5 self-start sm:self-auto transition-colors"
+                        >
+                          <span>Open Gmail Archive</span>
+                          <ExternalLink className="w-3 h-3 text-emerald-400" />
+                        </a>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-400">
+                        <div>
+                          <span className="text-slate-500 block">Submitted At:</span>
+                          <span className="text-white font-medium">{formatIST(sub.submittedAt)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block">Recipient:</span>
+                          <span className="text-white font-mono">{sub.recipientEmail}</span>
+                        </div>
+                        {sub.emailMessageId && (
+                          <div className="sm:col-span-2">
+                            <span className="text-slate-500 block">SMTP Message-ID:</span>
+                            <span className="text-emerald-400 font-mono text-[10px] break-all">{sub.emailMessageId}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Attachment Manifest */}
+                      <div className="pt-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1.5">
+                          Archived Attachment Manifest ({sub.attachments?.length || 0} Files • {((sub.totalAttachmentBytes || 0) / (1024 * 1024)).toFixed(2)} MB)
+                        </span>
+                        <div className="space-y-1.5">
+                          {sub.attachments?.map((att: any) => (
+                            <div
+                              key={att.id}
+                              className="p-2 rounded-lg bg-slate-950/80 border border-slate-800/80 flex items-center justify-between gap-2 text-[11px]"
+                            >
+                              <div className="min-w-0">
+                                <span className="font-semibold text-white block truncate">{att.filename}</span>
+                                <span className="font-mono text-[9px] text-slate-500 truncate block">
+                                  SHA-256: {att.sha256}
+                                </span>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="text-[10px] text-slate-400 block">
+                                  {(att.fileSize / 1024).toFixed(1)} KB
+                                </span>
+                                <span className="text-[9px] text-emerald-400 font-mono">Real Attachment</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Explanatory Archival Notice */}
+                      <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-[10px] text-slate-400 leading-relaxed">
+                        <strong className="text-slate-300">Archive Retention Notice:</strong> Original submitted documents are retained in the ThreatLedger sender Gmail account&apos;s Sent folder. Temporary upload files have been purged from platform staging.
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
+              {/* Legacy Historical Records (if any old R2 files exist) */}
+              {reportVersions.length > 0 && (
+                <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800/80 space-y-3 text-xs">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                    Legacy Pre-Gmail File Records ({reportVersions.length})
+                  </span>
+                  <div className="space-y-2">
+                    {reportVersions.map((v: any) => (
+                      <div key={v.id} className="p-2.5 rounded bg-slate-950/60 border border-slate-800/60 flex items-center justify-between text-[11px]">
+                        <div>
+                          <span className="font-semibold text-white">v{v.versionNumber} — {v.filename}</span>
+                          <span className="text-slate-500 text-[10px] block">Uploaded {formatIST(v.createdAt)}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDownloadFile(v.id)}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-medium inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3 text-emerald-400" />
+                          <span>Download</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Stage New Report & Supporting Evidence for Review */}
+            <div className="lg:col-span-5 p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-5 text-xs">
+              <div>
+                <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-emerald-400" />
+                  Stage Deliverables for Independent Review
+                </h3>
+                <p className="text-slate-400 leading-relaxed text-[11px] mt-1">
+                  Upload your research report and supporting evidence. Files will be temporarily staged and dispatched as real email attachments to the reviewer.
+                </p>
+              </div>
+
+              {/* Combined Attachment Size Meter (Max 18 MB) */}
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-slate-300">Combined Email Attachment Payload:</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {(stagedFiles.reduce((sum, f) => sum + f.fileSize, 0) / (1024 * 1024)).toFixed(2)} MB / 18.0 MB
+                  </span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                  <div
+                    className={`h-full transition-all ${
+                      stagedFiles.reduce((sum, f) => sum + f.fileSize, 0) > 18 * 1024 * 1024
+                        ? 'bg-rose-500'
+                        : stagedFiles.reduce((sum, f) => sum + f.fileSize, 0) > 14 * 1024 * 1024
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                    }`}
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (stagedFiles.reduce((sum, f) => sum + f.fileSize, 0) / (18 * 1024 * 1024)) * 100
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 block">
+                  Strictly enforced: Google Drive links and temporary signed URLs are prohibited.
+                </span>
+              </div>
+
+              {/* Upload Input */}
+              <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white text-[11px]">Add Document to Staging</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setStageFileCategory('REPORT')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        stageFileCategory === 'REPORT'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      Report Document
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStageFileCategory('EVIDENCE')}
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        stageFileCategory === 'EVIDENCE'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      Evidence
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  type="file"
+                  disabled={stagingUpload}
+                  accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.txt,.log,.json,.xml,.png,.jpg,.jpeg,.webp"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleStageFileUpload(e.target.files[0], stageFileCategory);
+                      e.target.value = '';
+                    }
+                  }}
+                  className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-white hover:file:bg-slate-700"
+                />
+
+                {stagingProgress && (
+                  <div className="p-2 rounded bg-slate-950 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] animate-pulse">
+                    {stagingProgress}
+                  </div>
+                )}
+              </div>
+
+              {/* Staged Files Manifest Box */}
+              <div className="space-y-2">
+                <span className="font-semibold text-slate-300 text-[11px] block">
+                  Staged Files for Next Submission ({stagedFiles.length})
+                </span>
+
+                {stagedFiles.length === 0 ? (
+                  <div className="p-4 rounded-lg bg-slate-900/40 border border-slate-800/80 text-center text-[11px] text-slate-500">
+                    No files staged yet. Add primary report and supporting files above.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {stagedFiles.map((f, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px]"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <span className="font-semibold text-white block truncate">{f.filename}</span>
+                          <span className="text-[10px] text-slate-400">
+                            {f.fileCategory} • {(f.fileSize / 1024).toFixed(1)} KB
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStagedFile(idx)}
+                          className="text-rose-400 hover:text-rose-300 text-xs px-1.5 py-0.5 rounded hover:bg-rose-950/40"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 text-[11px]">
+                  Submission Notes for Reviewer (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={submissionNotes}
+                  onChange={(e) => setSubmissionNotes(e.target.value)}
+                  placeholder="Key research findings, indicators of compromise, or methodology summary..."
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                />
+              </div>
+
+              {/* Submit for Review Action Button */}
               <button
-                type="submit"
-                disabled={uploadingReport || !reportFile}
-                className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-md shadow-emerald-500/20 disabled:opacity-50"
+                type="button"
+                onClick={handleSubmitReportForReview}
+                disabled={submittingReport || stagedFiles.length === 0}
+                className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
-                {uploadingReport ? 'Uploading to R2...' : `Upload Deliverable (v${reportVersions.length + 1})`}
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {submittingReport ? 'Dispatching to Gmail...' : `Submit for Review (v${(assignment.reportSubmissions?.[0]?.versionNumber || 0) + 1})`}
+                </span>
               </button>
-            </form>
+            </div>
           </div>
         </div>
       )}

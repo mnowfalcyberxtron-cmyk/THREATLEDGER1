@@ -32,6 +32,12 @@ export async function GET(req: NextRequest) {
       !process.env.SMTP_USER.includes('your_')
     );
 
+    const gmailConfig = await prisma.emailConfiguration.findFirst({
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const hasGmailConfigured = Boolean(gmailConfig?.senderEmail && gmailConfig?.encryptedAppPassword);
+
     return NextResponse.json({
       integrations: {
         ransomwareLive: {
@@ -48,12 +54,21 @@ export async function GET(req: NextRequest) {
           bucketName: process.env.R2_BUCKET_NAME || 'threatledger-storage',
           endpoint: process.env.R2_ENDPOINT || 'https://<account_id>.r2.cloudflarestorage.com',
           publicAccessDisabled: true,
+          statusNotice: 'Legacy Archive Only — New report submissions are archived in Gmail Sent folder',
         },
         email: {
-          configured: hasResendKey || hasSmtpConfig,
-          primaryProvider: hasResendKey ? 'RESEND' : hasSmtpConfig ? 'SMTP' : 'MOCK_DEV',
-          fromAddress: process.env.SMTP_FROM || 'ThreatLedger CTI <notifications@threatledger.internal>',
+          configured: hasGmailConfigured || hasResendKey || hasSmtpConfig,
+          primaryProvider: hasGmailConfigured ? 'GMAIL_SMTP' : hasResendKey ? 'RESEND' : hasSmtpConfig ? 'SMTP' : 'MOCK_DEV',
+          fromAddress: gmailConfig?.senderEmail || process.env.SMTP_FROM || 'ThreatLedger CTI <notifications@threatledger.internal>',
           section31Compliant: true,
+          gmailArchive: {
+            configured: hasGmailConfigured,
+            senderEmail: gmailConfig?.senderEmail || 'threatledger.notifications@gmail.com',
+            status: gmailConfig?.status || 'NOT_CONFIGURED',
+            smtpHost: 'smtp.gmail.com',
+            smtpPort: gmailConfig?.smtpPort || 465,
+            archiveLocation: 'Gmail Sent Mailbox (Real Attachments)',
+          },
         },
       },
       regional: {

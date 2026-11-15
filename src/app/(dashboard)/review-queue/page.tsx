@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Filter,
+  Mail,
 } from 'lucide-react';
 import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
@@ -193,8 +194,26 @@ export default function ReviewQueuePage() {
                       <span>Checklist: <strong className="text-white font-mono">{completedChecklist}/15</strong></span>
                     </div>
 
-                    {/* Attached Report Version Card */}
-                    {latestVersion && (
+                    {/* Email Archive Submission Card (Primary) */}
+                    {s.reportSubmissions?.[0] ? (
+                      <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5 text-xs max-w-md">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-white flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Submission v{s.reportSubmissions[0].versionNumber} (Gmail Archive)</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                            {s.reportSubmissions[0].emailStatus}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          Recipient: <span className="text-white font-mono">{s.reportSubmissions[0].recipientEmail}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {s.reportSubmissions[0].attachments?.length || 0} real attachments • Downloadable from Gmail Sent folder
+                        </div>
+                      </div>
+                    ) : latestVersion && (
                       <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 inline-flex items-center gap-3 text-xs">
                         <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
                         <div>

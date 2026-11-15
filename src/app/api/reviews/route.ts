@@ -39,6 +39,13 @@ export async function GET(req: NextRequest) {
         },
         evidence: true,
         checklistItems: true,
+        reportSubmissions: {
+          orderBy: { versionNumber: 'desc' },
+          include: {
+            attachments: true,
+            submittedBy: { select: { fullName: true } },
+          },
+        },
       },
       orderBy: { submittedAt: 'desc' },
     });

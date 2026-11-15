@@ -49,6 +49,10 @@ export async function POST(
         primaryAnalyst: true,
         reviewer: true,
         group: { select: { name: true } },
+        reportSubmissions: {
+          orderBy: { versionNumber: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -143,9 +147,11 @@ export async function POST(
 
     // Dispatch operational notifications & Section 31 email with physical attachment
     if (targetStatus === 'SUBMITTED_FOR_REVIEW') {
-      dispatchReportSubmittedNotification(assignmentId).catch((e) =>
-        console.error('[Background Email Dispatch Error]:', e)
-      );
+      if (!assignment.reportSubmissions || assignment.reportSubmissions.length === 0) {
+        dispatchReportSubmittedNotification(assignmentId).catch((e) =>
+          console.error('[Background Email Dispatch Error]:', e)
+        );
+      }
     } else if (
       targetStatus === 'APPROVED_COMPLETED' ||
       targetStatus === 'CHANGES_REQUESTED' ||

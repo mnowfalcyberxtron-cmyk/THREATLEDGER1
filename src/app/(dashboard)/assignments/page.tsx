@@ -56,6 +56,9 @@ export default function AssignmentsPage() {
   const [dueDate, setDueDate] = useState('');
   const [individualDeadlines, setIndividualDeadlines] = useState<Record<string, string>>({});
   const [useSeparateDeadlines, setUseSeparateDeadlines] = useState(false);
+  const [recipientOverrideEmail, setRecipientOverrideEmail] = useState('');
+  const [ccEmails, setCcEmails] = useState('');
+  const [bccEmails, setBccEmails] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -128,6 +131,9 @@ export default function AssignmentsPage() {
           priority,
           dueDate: dueDate || undefined,
           individualDeadlines: useSeparateDeadlines ? individualDeadlines : undefined,
+          recipientOverrideEmail: recipientOverrideEmail || undefined,
+          ccEmails: ccEmails || undefined,
+          bccEmails: bccEmails || undefined,
         }),
       });
 
@@ -414,10 +420,47 @@ export default function AssignmentsPage() {
                     <option value="">Default (Assigner)</option>
                     {teamMembers.filter((m) => m.role === 'ADMIN' || m.role === 'SUPER_ADMIN').map((m) => (
                       <option key={m.profileId || m.id} value={m.profileId || m.id}>
-                        {m.fullName} ({m.role})
+                        {m.fullName} ({m.role}) — {m.email}
                       </option>
                     ))}
                   </select>
+                  {(() => {
+                    const rev = teamMembers.find((m) => (m.profileId || m.id) === selectedReviewerId);
+                    return rev?.email ? (
+                      <span className="text-[10px] text-emerald-400 block mt-1 font-mono">
+                        Destination: {rev.email} (Assigned Reviewer)
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+
+              {/* Email Destination & Override Controls */}
+              <div className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Email Dispatch & Recipient Controls (Gmail Archive)
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-0.5 text-[11px]">Recipient Override (Optional)</label>
+                    <input
+                      type="email"
+                      value={recipientOverrideEmail}
+                      onChange={(e) => setRecipientOverrideEmail(e.target.value)}
+                      placeholder="e.g. external.lead@threatledger.internal"
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-0.5 text-[11px]">Optional CC (Comma-separated)</label>
+                    <input
+                      type="text"
+                      value={ccEmails}
+                      onChange={(e) => setCcEmails(e.target.value)}
+                      placeholder="ops@threatledger.internal"
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/40"
+                    />
+                  </div>
                 </div>
               </div>
 

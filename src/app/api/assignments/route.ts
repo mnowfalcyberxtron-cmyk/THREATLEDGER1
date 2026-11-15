@@ -35,6 +35,9 @@ const createAssignmentSchema = z.object({
   priority: z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
   dueDate: z.string().optional(),
   individualDeadlines: z.record(z.string(), z.string()).optional(), // Map of groupId -> custom deadline
+  recipientOverrideEmail: z.string().email().optional().or(z.literal('')),
+  ccEmails: z.string().optional(),
+  bccEmails: z.string().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -70,7 +73,7 @@ export async function GET(req: NextRequest) {
           select: { id: true, fullName: true, role: true, user: { select: { email: true } } },
         },
         reviewer: {
-          select: { id: true, fullName: true, role: true },
+          select: { id: true, fullName: true, role: true, user: { select: { email: true } } },
         },
         checklistItems: {
           select: { id: true, status: true },
@@ -212,6 +215,11 @@ export async function POST(req: NextRequest) {
           dueDate: finalDueDate,
           deadlineVersion: 1,
           isLegacyWeekendDeadline: false,
+          recipientOverrideEmail: parsed.data.recipientOverrideEmail && parsed.data.recipientOverrideEmail.trim().length > 0 ? parsed.data.recipientOverrideEmail.trim() : null,
+          recipientOverrideById: parsed.data.recipientOverrideEmail ? caller.id : null,
+          recipientOverrideAt: parsed.data.recipientOverrideEmail ? new Date() : null,
+          ccEmails: parsed.data.ccEmails || null,
+          bccEmails: parsed.data.bccEmails || null,
           checklistItems: {
             create: DEFAULT_CHECKLIST_ITEMS.map((item) => ({
               itemKey: item.itemKey,

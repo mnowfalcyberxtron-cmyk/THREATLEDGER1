@@ -3,6 +3,10 @@ import { Resend } from 'resend';
 import prisma from '@/lib/prisma';
 import { getObjectBytes } from '@/lib/storage/r2';
 import {
+  getActiveGmailConfig,
+  sendReportEmailViaGmail,
+} from './gmail-service';
+import {
   renderTeamInviteEmail,
   renderTaskAssignedEmail,
   renderReportSubmittedEmail,
@@ -101,6 +105,37 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
       attempts: { increment: 1 },
     },
   });
+
+  // 2.5 Dispatch via configured ThreatLedger Gmail sender account if available
+  const gmailConfig = await getActiveGmailConfig();
+  if (gmailConfig && gmailConfig.status === 'CONNECTED') {
+    const gmailRes = await sendReportEmailViaGmail({
+      to,
+      subject,
+      html,
+      text,
+      attachments,
+    });
+
+    if (gmailRes.success) {
+      await prisma.emailOutbox.update({
+        where: { id: outbox.id },
+        data: {
+          status: EmailStatus.SENT,
+          sentAt: new Date(),
+          providerMessageId: gmailRes.messageId,
+          provider: EmailProvider.SMTP,
+        },
+      });
+
+      return {
+        success: true,
+        messageId: gmailRes.messageId,
+        provider: EmailProvider.SMTP,
+        mocked: Boolean(gmailRes.mocked),
+      };
+    }
+  }
 
   // 3. Dispatch via Resend if configured
   if (isResendConfigured && resendClient) {
