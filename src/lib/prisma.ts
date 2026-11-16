@@ -10,10 +10,18 @@ const globalForPrisma = globalThis as unknown as {
 const connectionString =
   process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/postgres';
 
+let schema: string | undefined = undefined;
+try {
+  const url = new URL(connectionString);
+  schema = url.searchParams.get('schema') || undefined;
+} catch {
+  schema = undefined;
+}
+
 const pool = globalForPrisma.pool ?? new Pool({ connectionString });
 if (process.env.NODE_ENV !== 'production') globalForPrisma.pool = pool;
 
-const adapter = new PrismaPg(pool);
+const adapter = new PrismaPg(pool, schema ? { schema } : undefined);
 
 export const prisma =
   globalForPrisma.prisma ??
