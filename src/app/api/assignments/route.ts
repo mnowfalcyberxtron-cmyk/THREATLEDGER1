@@ -294,8 +294,8 @@ export async function POST(req: NextRequest) {
       targetId: createdAssignments[0]?.id,
       afterJson: {
         totalAllocated: groupIds.length,
-        primaryAnalystId,
-        reviewerId: finalReviewerId,
+        primaryAnalystId: resolvedAnalystId,
+        reviewerId: resolvedReviewerId,
         priority,
         dueDate,
       },
