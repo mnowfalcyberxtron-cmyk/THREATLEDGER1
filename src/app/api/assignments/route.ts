@@ -8,6 +8,19 @@ import { rescheduleAssignmentReminders } from '@/lib/services/reminder-engine';
 import { AssignmentPriority, AssignmentStatus, ChecklistStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
+async function resolveProfileId(id: string): Promise<string> {
+  const profile = await prisma.userProfile.findFirst({
+    where: {
+      OR: [
+        { id: id },
+        { userId: id },
+      ],
+    },
+    select: { id: true },
+  });
+  return profile?.id || id;
+}
+
 const DEFAULT_CHECKLIST_ITEMS = [
   { itemKey: 'group_overview', title: '1. Group Overview & Origins', orderIndex: 1 },
   { itemKey: 'group_aliases', title: '2. Group Aliases & Rebranding History', orderIndex: 2 },
@@ -56,7 +69,7 @@ export async function GET(req: NextRequest) {
     if (priority) where.priority = priority;
 
     if (myTasksOnly) {
-      where.primaryAnalystId = caller.id;
+      where.primaryAnalystId = caller.profileId || caller.id;
     } else if (analystId) {
       where.primaryAnalystId = analystId;
     }
@@ -169,7 +182,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const finalReviewerId = reviewerId || caller.id;
+    const callerProfileId = await resolveProfileId(caller.profileId || caller.id);
+    const resolvedAnalystId = await resolveProfileId(primaryAnalystId);
+    const resolvedReviewerId = reviewerId ? await resolveProfileId(reviewerId) : callerProfileId;
     const isBulk = groupIds.length > 1;
 
     let batchId: string | undefined = undefined;
@@ -177,7 +192,7 @@ export async function POST(req: NextRequest) {
       const batch = await prisma.assignmentBatch.create({
         data: {
           title: `Bulk Allocation: ${title} (${groupIds.length} groups)`,
-          createdById: caller.id,
+          createdById: callerProfileId,
         },
       });
       batchId = batch.id;
@@ -205,9 +220,9 @@ export async function POST(req: NextRequest) {
         data: {
           batchId,
           groupId,
-          primaryAnalystId,
-          assignerId: caller.id,
-          reviewerId: finalReviewerId,
+          primaryAnalystId: resolvedAnalystId,
+          assignerId: callerProfileId,
+          reviewerId: resolvedReviewerId,
           title: taskTitle,
           instructions,
           priority: priority as AssignmentPriority,
@@ -216,7 +231,7 @@ export async function POST(req: NextRequest) {
           deadlineVersion: 1,
           isLegacyWeekendDeadline: false,
           recipientOverrideEmail: parsed.data.recipientOverrideEmail && parsed.data.recipientOverrideEmail.trim().length > 0 ? parsed.data.recipientOverrideEmail.trim() : null,
-          recipientOverrideById: parsed.data.recipientOverrideEmail ? caller.id : null,
+          recipientOverrideById: parsed.data.recipientOverrideEmail ? callerProfileId : null,
           recipientOverrideAt: parsed.data.recipientOverrideEmail ? new Date() : null,
           ccEmails: parsed.data.ccEmails || null,
           bccEmails: parsed.data.bccEmails || null,

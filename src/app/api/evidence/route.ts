@@ -35,10 +35,11 @@ export async function GET(req: NextRequest) {
 
     // Role-based visibility
     if (caller.role === UserRole.ANALYST) {
+      const pid = caller.profileId || caller.id;
       where.OR = [
         { uploaderId: caller.id },
-        { assignment: { primaryAnalystId: caller.id } },
-        { assignment: { reviewerId: caller.id } },
+        { assignment: { primaryAnalystId: pid } },
+        { assignment: { reviewerId: pid } },
       ];
     }
 

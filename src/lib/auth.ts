@@ -6,6 +6,7 @@ import { UserRole, UserStatus } from '@prisma/client';
 
 export interface AuthSessionUser {
   id: string;
+  profileId: string;
   email: string;
   role: UserRole;
   fullName: string;
@@ -133,6 +134,7 @@ export async function getCurrentUser(): Promise<AuthSessionUser | null> {
 
     return {
       id: user.id,
+      profileId: user.profile?.id || user.id,
       email: user.email,
       role: user.profile?.role || UserRole.ANALYST,
       fullName: user.profile?.fullName || user.email.split('@')[0],
