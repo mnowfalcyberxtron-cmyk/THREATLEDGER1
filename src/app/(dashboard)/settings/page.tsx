@@ -37,6 +37,20 @@ export default function AdminSettingsPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testEmail, setTestEmail] = useState('');
 
+  // isMalicious Intelligence Integration State
+  const [isMaliciousConfig, setIsMaliciousConfig] = useState<any>(null);
+  const [isMaliciousApiKey, setIsMaliciousApiKey] = useState('');
+  const [isMaliciousApiSecret, setIsMaliciousApiSecret] = useState('');
+  const [savingIsMalicious, setSavingIsMalicious] = useState(false);
+  const [testingIsMalicious, setTestingIsMalicious] = useState(false);
+  const [syncingIsMalicious, setSyncingIsMalicious] = useState(false);
+  const [isMaliciousNotice, setIsMaliciousNotice] = useState<string | null>(null);
+
+  // RansomWatch Historical Archive State
+  const [ransomWatchStatus, setRansomWatchStatus] = useState<any>(null);
+  const [importingRansomWatch, setImportingRansomWatch] = useState(false);
+  const [ransomWatchNotice, setRansomWatchNotice] = useState<string | null>(null);
+
   // Legacy Weekend Migration Review state (Section 10)
   const [legacyAssignments, setLegacyAssignments] = useState<any[]>([]);
   const [loadingLegacy, setLoadingLegacy] = useState(false);
@@ -356,12 +370,140 @@ export default function AdminSettingsPage() {
     }
   };
 
+  async function loadIsMaliciousConfig() {
+    try {
+      const res = await fetch('/api/intelligence/ismalicious');
+      const data = await res.json();
+      setIsMaliciousConfig(data);
+      if (data.maskedKey) setIsMaliciousApiKey(data.maskedKey);
+    } catch {
+      console.error('Failed to load isMalicious settings');
+    }
+  }
+
+  async function loadRansomWatchStatus() {
+    try {
+      const res = await fetch('/api/intelligence/ransomwatch');
+      const data = await res.json();
+      setRansomWatchStatus(data);
+    } catch {
+      console.error('Failed to load RansomWatch status');
+    }
+  }
+
+  const handleSaveIsMalicious = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingIsMalicious(true);
+    setIsMaliciousNotice(null);
+    try {
+      const res = await fetch('/api/intelligence/ismalicious', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'SAVE',
+          apiKey: isMaliciousApiKey,
+          apiSecret: isMaliciousApiSecret,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIsMaliciousNotice(`Error: ${data.error}`);
+      } else {
+        setIsMaliciousNotice(`Success: ${data.message}`);
+        setIsMaliciousApiSecret('');
+        loadIsMaliciousConfig();
+      }
+    } catch (err: any) {
+      setIsMaliciousNotice(`Network error: ${err.message}`);
+    } finally {
+      setSavingIsMalicious(false);
+    }
+  };
+
+  const handleTestIsMalicious = async () => {
+    setTestingIsMalicious(true);
+    setIsMaliciousNotice(null);
+    try {
+      const res = await fetch('/api/intelligence/ismalicious', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'TEST',
+          apiKey: isMaliciousApiKey && !isMaliciousApiKey.includes('...') ? isMaliciousApiKey : undefined,
+          apiSecret: isMaliciousApiSecret || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setIsMaliciousNotice(`Connection test failed: ${data.message || data.error}`);
+      } else {
+        setIsMaliciousNotice(`Connection verified: ${data.message} (${data.recordsCount} groups reachable)`);
+        loadIsMaliciousConfig();
+      }
+    } catch (err: any) {
+      setIsMaliciousNotice(`Test failed: ${err.message}`);
+    } finally {
+      setTestingIsMalicious(false);
+    }
+  };
+
+  const handleSyncIsMalicious = async () => {
+    setSyncingIsMalicious(true);
+    setIsMaliciousNotice(null);
+    try {
+      const res = await fetch('/api/intelligence/ismalicious', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'SYNC' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setIsMaliciousNotice(`Sync failed: ${data.error}`);
+      } else {
+        setIsMaliciousNotice(`Sync complete: Processed ${data.groupsProcessed} groups (${data.createdCount} new, ${data.firstClaimEnrichedCount} claim dates enriched) in ${data.durationMs}ms`);
+        loadIsMaliciousConfig();
+      }
+    } catch (err: any) {
+      setIsMaliciousNotice(`Sync failed: ${err.message}`);
+    } finally {
+      setSyncingIsMalicious(false);
+    }
+  };
+
+  const handleImportRansomWatch = async (force = false) => {
+    setImportingRansomWatch(true);
+    setRansomWatchNotice(null);
+    try {
+      const res = await fetch('/api/intelligence/ransomwatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRerun: force }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status === 'FAILED') {
+        setRansomWatchNotice(`Import failed: ${data.errors?.join(', ') || data.error}`);
+      } else if (data.status === 'ALREADY_IMPORTED') {
+        setRansomWatchNotice(`Archive already imported (${data.groupsSkipped} records). Idempotent guard preserved.`);
+        loadRansomWatchStatus();
+      } else {
+        setRansomWatchNotice(`Historical import successful: ${data.groupsImported} imported, ${data.groupsUpdated} updated from 2021-2026 archive in ${data.durationMs}ms`);
+        loadRansomWatchStatus();
+      }
+    } catch (err: any) {
+      setRansomWatchNotice(`Import failed: ${err.message}`);
+    } finally {
+      setImportingRansomWatch(false);
+    }
+  };
+
   useEffect(() => {
     loadSettings();
     loadLegacyWeekends();
     loadGmailConfig();
     loadTemplates();
     loadEmailActivity();
+    loadIsMaliciousConfig();
+    loadRansomWatchStatus();
   }, []);
 
   const handleAction = async (action: string, extra?: any) => {
@@ -551,6 +693,168 @@ export default function AdminSettingsPage() {
               <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-900 border border-slate-800 text-slate-400">
                 Poll Interval: 60 min
               </span>
+            </div>
+          </div>
+
+          {/* isMalicious Integration Panel */}
+          <div className="p-6 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-emerald-400" />
+                  Ransomware Intelligence: isMalicious API
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                  Enriches threat groups with <strong className="text-white">firstClaimAt</strong>, claims activity, and victim postings.
+                  Lineage: <span className="text-amber-400 font-semibold">DERIVED_OR_MIRRORED</span> (upstream cache from Ransomware.live; not counted as an independent discovery).
+                </p>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                isMaliciousConfig?.configured
+                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-amber-950 text-amber-400 border border-amber-500/30'
+              }`}>
+                {isMaliciousConfig?.configured ? 'Credentials Encrypted & Active' : 'Awaiting Configuration'}
+              </span>
+            </div>
+
+            {isMaliciousNotice && (
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200">
+                {isMaliciousNotice}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveIsMalicious} className="space-y-4 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    isMalicious API Key *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={isMaliciousApiKey}
+                    onChange={(e) => setIsMaliciousApiKey(e.target.value)}
+                    placeholder="e.g. e366ac1e-4fa8-42be-be34-5578765a4a6a"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Public Key identifier from isMalicious Account → API Keys
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    isMalicious API Secret *
+                  </label>
+                  <input
+                    type="password"
+                    value={isMaliciousApiSecret}
+                    onChange={(e) => setIsMaliciousApiSecret(e.target.value)}
+                    placeholder={isMaliciousConfig?.configured ? '•••••••••••••••••••• (Encrypted in DB)' : 'Enter API Secret from Account page'}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500/50"
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Stored AES-256-GCM encrypted. Required for Base64 header.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={savingIsMalicious}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{savingIsMalicious ? 'Encrypting & Saving...' : 'Save & Encrypt Credentials'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleTestIsMalicious}
+                  disabled={testingIsMalicious}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${testingIsMalicious ? 'animate-spin text-emerald-400' : ''}`} />
+                  <span>Test Connection (limit=5)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSyncIsMalicious}
+                  disabled={syncingIsMalicious}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Database className={`w-3.5 h-3.5 ${syncingIsMalicious ? 'animate-spin text-emerald-400' : ''}`} />
+                  <span>{syncingIsMalicious ? 'Synchronizing...' : 'Sync Groups & First Claims'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* RansomWatch Historical Archive Panel */}
+          <div className="p-6 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                  <History className="w-4 h-4 text-slate-400" />
+                  Historical Intelligence Archive: RansomWatch
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                  Historical archive of 200+ ransomware leak sites and posts (2021–March 2026).
+                  Status: <strong className="text-slate-300">Archived & Read-Only</strong>. Imported once as <code className="text-slate-300">HISTORICAL_ARCHIVE</code>; never treated as live discovery.
+                </p>
+              </div>
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                ransomWatchStatus?.hasImported
+                  ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}>
+                {ransomWatchStatus?.hasImported ? 'Archive Ingested' : 'Not Yet Imported'}
+              </span>
+            </div>
+
+            {ransomWatchNotice && (
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200">
+                {ransomWatchNotice}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-slate-300">
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold block mb-1">Repository</span>
+                <span className="text-white font-mono text-[11px]">joshhighet/ransomwatch</span>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold block mb-1">Archive Date</span>
+                <span className="text-white font-mono text-[11px]">3 March 2026 (Read-Only)</span>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="text-slate-500 text-[10px] uppercase font-semibold block mb-1">Historical Coverage</span>
+                <span className="text-emerald-400 font-mono text-[11px]">2021-08 to 2026-03</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => handleImportRansomWatch(false)}
+                disabled={importingRansomWatch}
+                className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${importingRansomWatch ? 'animate-spin text-emerald-400' : ''}`} />
+                <span>{importingRansomWatch ? 'Importing Historical Data...' : 'Import RansomWatch Archive'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleImportRansomWatch(true)}
+                disabled={importingRansomWatch}
+                className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 text-xs"
+              >
+                Force Re-run Import
+              </button>
             </div>
           </div>
         </div>

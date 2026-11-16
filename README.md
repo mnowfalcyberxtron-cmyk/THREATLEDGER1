@@ -51,7 +51,8 @@ Every assigned syndicate investigation enforces a standardized quality control w
 | Domain | Capabilities |
 | :--- | :--- |
 | **Intelligence Feeds** | Continuous ingestion from `https://api-pro.ransomware.live` (`X-API-KEY`) and GitHub upstream monitoring (`JMousqueton/ransomware.live`). Baseline sync prevents false positives on first run. |
-| **Syndicate Profiles** | Comprehensive dossiers featuring historical victim counts, active/inactive states, known aliases, MITRE TTPs, CVEs, tools, and merge protocols for re-branded syndicates. |
+| **Multi-Source Discovery** | Multi-source threat actor correlation with **isMalicious API** (`DERIVED_OR_MIRRORED`), **RansomWatch Historical Archive** (`HISTORICAL_ARCHIVE`, read-only 2021–2026), and Ransomware.live PRO. Strict decoupling of `firstClaimAt` vs `firstObservedAt`. |
+| **Syndicate Profiles** | Comprehensive dossiers featuring historical victim counts, active/inactive states, known aliases, MITRE TTPs, CVEs, tools, Source Intelligence observation provenance, and merge protocols. |
 | **Analyst Operations** | Bulk and individual task allocation with batch IDs, interactive 15-point quality checklist, two-way notes (Analyst/Reviewer shared vs Admin-only private notes). |
 | **Private Object Storage** | Direct browser-to-R2 presigned upload architecture (bypassing Vercel request limits), short-lived download authorization (900s TTL), and progressive quota monitoring (70% notice, 85% warning, 95% hard-block). |
 | **Supporting Evidence** | Dedicated private repository for victim datasets, screenshots, network graphs, and raw PCAP/IOC files with SHA-256 fingerprinting. |
@@ -133,6 +134,27 @@ Executes comprehensive end-to-end tests across all operational phases:
 - Phase 5: Branded email templates, Section 31 MIME buffer attachment delivery, idempotency
 - Phase 6: Monthly trends, RFC 4180 CSV export escaping, quota alerts
 - Phase 7: Quota engine tiers (70/85/95%), capacity overflow protection, 900s TTL
+- Phase 9: Working-day deadline management & official logo integration
+- Multi-Source Discovery: isMalicious Base64 auth, AES-256-GCM vault, IST month boundaries, RansomWatch historical archive isolation, distinct date architecture
+
+---
+
+## 🔍 Multi-Source Threat Actor Discovery & Lineage Architecture
+
+ThreatLedger implements an auditable multi-source discovery framework with strict date decoupling and source-lineage transparency:
+
+### 1. Distinct Date Architecture (Eliminating Shared Timestamps)
+- **First Public Claim (`firstClaimAt`):** The earliest documented public victim extortion claim made by the threat actor according to upstream feeds. Preserved independently; missing timestamps remain `NULL`.
+- **First Observed by ThreatLedger (`firstObservedAt`):** The exact timestamp when ThreatLedger first ingested the actor. Recorded once and never overwritten during subsequent synchronizations.
+- **Import Timestamp (`importedAt`):** Distinguishes archival data ingestion from live discoveries.
+
+### 2. Source Lineage & Independence Rules
+- **Ransomware.live API PRO:** Primary live feed (`INDEPENDENT`).
+- **isMalicious Ransomware Intelligence:** Authenticated via server-generated `X-API-KEY: Base64(apiKey:apiSecret)` with AES-256-GCM database encryption. Explicitly classified as `DERIVED_OR_MIRRORED` (backed by Ransomware.live cache); never counted as an independent discovery alongside Ransomware.live.
+- **RansomWatch Historical Archive (`joshhighet/ransomwatch`):** Archived 3 March 2026. Controlled, one-time idempotent import (`HISTORICAL_ARCHIVE`). Historical actors are strictly barred from inflating live monthly discovery metrics.
+
+### 3. Regional Reporting Standard
+All monthly discovery metrics and date filter boundaries are strictly calculated according to **Asia/Kolkata (IST, UTC+05:30)** calendar months (e.g. November 2026 runs from `2026-11-01 00:00:00 IST` to `2026-12-01 00:00:00 IST` exclusive in UTC).
 
 ---
 

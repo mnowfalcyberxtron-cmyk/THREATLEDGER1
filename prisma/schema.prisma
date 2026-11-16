@@ -27,8 +27,34 @@ enum InvitationStatus {
 
 enum GroupSource {
   RANSOMWARE_LIVE
+  ISMALICIOUS
+  RANSOMWATCH
   MANUAL
   MERGED
+  MULTI_SOURCE
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  VERIFIED_DISTINCT
+  REJECTED_FALSE_POSITIVE
+  LINKED_AS_ALIAS
+  POSSIBLE_REBRAND
+  RESEARCH_REQUESTED
+}
+
+enum SourceLineage {
+  PRIMARY_INDEPENDENT
+  DERIVED_OR_MIRRORED
+  HISTORICAL_ARCHIVE
+}
+
+enum ObservationSemantic {
+  FIRST_CLAIM
+  SOURCE_ADDED
+  SOURCE_UPDATED
+  THREATLEDGER_OBSERVED
+  IMPORTED
 }
 
 enum GroupStatus {
@@ -151,6 +177,7 @@ model UserProfile {
   notifications    Notification[]
   auditLogs        AuditLog[]
   reportSubmissions ReportSubmission[] @relation("ReportSubmitter")
+  groupVerifications GroupVerification[]
 
   @@index([role])
 }
@@ -202,9 +229,19 @@ model RansomwareGroup {
   discoveryStatus       DiscoveryStatus       @default(BASELINE)
   discoveryMonth        String?               // e.g. "2026-11"
   threatLedgerDetectedAt DateTime             @default(now())
+  firstObservedAt       DateTime?
+  firstClaimAt          DateTime?
+  firstClaimSource      String?
   firstSeenSourceAt     DateTime?
   sourceAddedAt         DateTime?
+  sourceLastUpdatedAt   DateTime?
   lastObservedAt        DateTime?
+  lastSeenAt            DateTime?
+  importedAt            DateTime?
+  lastVerifiedAt        DateTime?
+  verificationStatus    VerificationStatus    @default(UNVERIFIED)
+  verificationNotes     String?               @db.Text
+  verifiedById          String?
   websiteUrl            String?
   profileUrl            String?
   victimCount           Int                   @default(0)
@@ -214,6 +251,8 @@ model RansomwareGroup {
   aliases               GroupAlias[]
   snapshots             GroupSnapshot[]
   discoveryEvents       GroupDiscoveryEvent[]
+  sourceObservations    GroupSourceObservation[]
+  verifications         GroupVerification[]
   victims               Victim[]
   ttps                  GroupTTP[]
   cves                  GroupCVE[]
@@ -225,6 +264,10 @@ model RansomwareGroup {
   @@index([discoveryMonth])
   @@index([discoveryStatus])
   @@index([status])
+  @@index([firstObservedAt])
+  @@index([firstClaimAt])
+  @@index([lastSeenAt])
+  @@index([verificationStatus])
 }
 
 model GroupAlias {
@@ -745,4 +788,103 @@ model SystemSetting {
   updatedAt      DateTime @updatedAt
 
   @@index([key])
+}
+
+// ----------------------------------------------------
+// MULTI-SOURCE THREAT ACTOR DISCOVERY & LINEAGE
+// ----------------------------------------------------
+
+model IntelligenceSource {
+  id            String                  @id // "RANSOMWARE_LIVE", "ISMALICIOUS", "RANSOMWATCH"
+  name          String
+  sourceType    String                  // "LIVE_PRIMARY", "DERIVED_OR_MIRRORED", "HISTORICAL_ARCHIVE"
+  lineage       SourceLineage           @default(PRIMARY_INDEPENDENT)
+  isEnabled     Boolean                 @default(true)
+  lastSyncAt    DateTime?
+  lastSyncStatus SyncStatus?
+  lastError     String?                 @db.Text
+  recordsTotal  Int                     @default(0)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  observations  GroupSourceObservation[]
+}
+
+model GroupSourceObservation {
+  id               String              @id @default(uuid())
+  groupId          String
+  sourceId         String
+  sourceGroupName  String
+  externalRecordId String?
+  firstClaimAt     DateTime?
+  sourceAddedAt    DateTime?
+  sourceUpdatedAt  DateTime?
+  observedAt       DateTime            @default(now())
+  confidenceScore  Float?              @default(1.0)
+  semantic         ObservationSemantic @default(THREATLEDGER_OBSERVED)
+  rawPayload       Json?
+  createdAt        DateTime            @default(now())
+
+  group            RansomwareGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  source           IntelligenceSource  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, observedAt])
+  @@index([sourceId, observedAt])
+  @@index([firstClaimAt])
+}
+
+model GroupVerification {
+  id             String          @id @default(uuid())
+  groupId        String
+  verifiedById   String
+  action         String          // VERIFY_DISTINCT, REJECT_FALSE, LINK_ALIAS, REBRAND_REVIEW
+  previousStatus String?
+  newStatus      String
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+
+  group          RansomwareGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  verifiedBy     UserProfile     @relation(fields: [verifiedById], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
+}
+
+model HistoricalImportRun {
+  id                String      @id @default(uuid())
+  sourceId          String      @default("RANSOMWATCH")
+  repositoryUrl     String
+  commitSha         String?
+  contentHash       String?
+  recordsRead       Int         @default(0)
+  recordsImported   Int         @default(0)
+  recordsSkipped    Int         @default(0)
+  recordsMatched    Int         @default(0)
+  dateCoverageStart DateTime?
+  dateCoverageEnd   DateTime?
+  status            SyncStatus  @default(SUCCESS)
+  startedAt         DateTime    @default(now())
+  completedAt       DateTime?
+  error             String?     @db.Text
+
+  @@index([sourceId, startedAt])
+}
+
+model SourceCredential {
+  id                    String    @id @default(uuid())
+  sourceId              String    @unique // "ISMALICIOUS"
+  encryptedApiKey       String    @db.Text
+  encryptedApiSecret    String    @db.Text
+  iv                    String
+  tag                   String
+  isEnabled             Boolean   @default(true)
+  lastTestStatus        String?
+  lastTestedAt          DateTime?
+  lastError             String?   @db.Text
+  requestsUsedThisMonth Int       @default(0)
+  monthlyQuota          Int       @default(250)
+  lastSyncAt            DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([sourceId])
 }

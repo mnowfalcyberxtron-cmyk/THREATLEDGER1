@@ -149,3 +149,28 @@ ThreatLedger includes `vercel.json` to trigger scheduled baseline and incrementa
 5. **Section 31 Physical MIME Attachment:** Submit report for review. Verify reviewer receives an email containing the actual binary report file attached as a MIME attachment.
 6. **Section 35 Review Sign-off:** As reviewer, navigate to `/review-queue`, open the submission, and click **Approve Report**. Confirm assignment status transitions to `APPROVED_COMPLETED` with distinct reviewer metadata.
 7. **Audit Trail Inspection:** Navigate to `/audit-logs` and confirm all events were recorded in immutable log format.
+
+---
+
+## 7. Multi-Source Threat Actor Discovery Configuration
+
+### 7.1 isMalicious Ransomware Intelligence API
+1. Navigate to **Admin Settings (`/settings`) → Intelligence APIs & Feeds → isMalicious API**.
+2. Enter the **API Key** (e.g., from your isMalicious dashboard) and the corresponding **API Secret**.
+3. Click **Save & Encrypt Credentials**. The secret is automatically encrypted using server-side AES-256-GCM.
+4. Click **Test Connection** to authenticate against `GET /ransomware/groups?limit=5`.
+5. ThreatLedger automatically constructs `X-API-KEY: Base64(apiKey:apiSecret)` on all requests.
+6. *Lineage Note:* isMalicious is strictly classified as `DERIVED_OR_MIRRORED` (upstream Ransomware.live cache); it is never counted as an independent group discovery alongside Ransomware.live.
+
+### 7.2 RansomWatch Historical Archive (`joshhighet/ransomwatch`)
+1. In `/settings → Intelligence APIs & Feeds → RansomWatch Archive`, click **Import RansomWatch Archive**.
+2. The import runs once, idempotently storing groups and deriving earliest public claims from `posts.json`.
+3. Historical records are saved as `HISTORICAL_ARCHIVE` and are strictly excluded from current-month live discovery metrics.
+
+### 7.3 Google / Gmail SMTP App Passwords Setup
+If using Gmail SMTP for notifications and report dispatches:
+1. Open your Google Account settings → **Security** (`Security & sign-in`).
+2. Ensure **2-Step Verification (2FA)** is turned **ON**. *(App Passwords is unavailable if 2-Step Verification is disabled)*.
+3. In the top search bar, type `App passwords` and select it.
+4. Name the app (e.g., `ThreatLedger`) and click **Create**.
+5. Copy the generated 16-character password and paste it into `/settings` under Gmail Integration.

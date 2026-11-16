@@ -26,6 +26,16 @@ export async function GET(
         discoveryEvents: {
           orderBy: { detectedAt: 'desc' },
         },
+        sourceObservations: {
+          orderBy: { retrievedAt: 'desc' },
+        },
+        verifications: {
+          include: { verifiedBy: { select: { fullName: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
+        verifiedBy: {
+          select: { fullName: true },
+        },
         assignments: {
           include: {
             primaryAnalyst: { select: { fullName: true, role: true } },

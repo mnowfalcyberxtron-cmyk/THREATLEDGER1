@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Radio,
   Sparkles,
+  Radar,
   Database,
   Users,
   Briefcase,
@@ -43,6 +44,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { title: 'Threat Actor Discovery', href: '/discovery', icon: Radar },
   { title: 'Ransomware Monitoring', href: '/monitoring', icon: Radio },
   { title: 'Newly Detected Groups', href: '/newly-detected', icon: Sparkles },
   { title: 'Group Intelligence', href: '/groups', icon: Database },

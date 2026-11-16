@@ -188,6 +188,7 @@ export default function GroupProfilePage() {
       <div className="flex items-center gap-1 border-b border-slate-800 overflow-x-auto pb-1 text-xs font-semibold">
         {[
           { id: 'overview', label: 'Overview', icon: Database },
+          { id: 'source-intelligence', label: `Source Intelligence (${group.sourceObservations?.length || 0})`, icon: GitBranch },
           { id: 'victims', label: `Victims (${group.victims?.length || 0})`, icon: Users },
           { id: 'ttps', label: `MITRE ATT&CK (${group.ttps?.length || 0})`, icon: Layers },
           { id: 'cves', label: `Vulnerabilities (${group.cves?.length || 0})`, icon: Bug },
@@ -251,6 +252,115 @@ export default function GroupProfilePage() {
               Note: Attacker victim postings represent unverified adversary extortion claims unless corroborated by independent incident forensics.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Tab: Source Intelligence */}
+      {activeTab === 'source-intelligence' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-4 rounded-xl bg-[#0a101f] border border-emerald-500/30 text-xs">
+              <span className="text-slate-400 text-[11px] block">First Known Public Claim</span>
+              <span className="text-lg font-bold text-emerald-400 font-mono mt-1 block">
+                {group.firstClaimAt ? formatIST(group.firstClaimAt) : 'Unknown / None'}
+              </span>
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Source: {group.firstClaimSource || 'N/A'}
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#0a101f] border border-cyan-500/30 text-xs">
+              <span className="text-slate-400 text-[11px] block">Platform Ingestion Date</span>
+              <span className="text-lg font-bold text-cyan-400 font-mono mt-1 block">
+                {formatIST(group.firstObservedAt || group.threatLedgerDetectedAt)}
+              </span>
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                Recorded by ThreatLedger
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#0a101f] border border-slate-800 text-xs">
+              <span className="text-slate-400 text-[11px] block">Analyst Verification Status</span>
+              <span className="text-lg font-bold text-white mt-1 block">
+                {group.verificationStatus || 'PENDING'}
+              </span>
+              <span className="text-[10px] text-slate-500 mt-0.5 block">
+                {group.verifiedBy ? `Reviewed by ${group.verifiedBy.fullName}` : 'Awaiting review'}
+              </span>
+            </div>
+          </div>
+
+          {/* Observations Table */}
+          <div className="bg-[#0a101f] border border-slate-800 rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-bold text-white">Contributing Source Observations</span>
+              <span className="text-[11px] text-slate-500">
+                {group.sourceObservations?.length || 0} observations linked
+              </span>
+            </div>
+
+            {(!group.sourceObservations || group.sourceObservations.length === 0) ? (
+              <div className="p-8 text-center text-xs text-slate-500">
+                No external source observations linked yet.
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/60 text-slate-400 font-semibold border-b border-slate-800 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-4">Source ID</th>
+                    <th className="py-2.5 px-4">Observed Name</th>
+                    <th className="py-2.5 px-4">Lineage</th>
+                    <th className="py-2.5 px-4">First Claim Date</th>
+                    <th className="py-2.5 px-4">Last Claim Date</th>
+                    <th className="py-2.5 px-4">Retrieval Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {group.sourceObservations.map((obs: any) => (
+                    <tr key={obs.id || obs.sourceId + obs.externalId} className="hover:bg-slate-800/20">
+                      <td className="py-2.5 px-4 font-bold text-white">{obs.sourceId}</td>
+                      <td className="py-2.5 px-4 text-slate-300 font-mono text-[11px]">{obs.observedName}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                          {obs.sourceLineage}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-emerald-400 font-mono text-[11px]">
+                        {obs.firstClaimAt ? formatIST(obs.firstClaimAt) : '—'}
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-400 font-mono text-[11px]">
+                        {obs.lastClaimAt ? formatIST(obs.lastClaimAt) : '—'}
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-500 font-mono text-[10px]">
+                        {formatIST(obs.retrievedAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Verification Audit Trail */}
+          {group.verifications && group.verifications.length > 0 && (
+            <div className="bg-[#0a101f] border border-slate-800 rounded-xl p-4 space-y-2">
+              <span className="text-xs font-bold text-white block">Analyst Validation History</span>
+              <div className="divide-y divide-slate-800/60 text-xs">
+                {group.verifications.map((v: any) => (
+                  <div key={v.id} className="py-2 flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-emerald-400">{v.status}</span>
+                      <p className="text-slate-400 text-[11px] mt-0.5">{v.notes}</p>
+                    </div>
+                    <div className="text-right text-[10px] text-slate-500">
+                      <div>{v.verifiedBy?.fullName || 'Analyst'}</div>
+                      <div>{formatIST(v.createdAt)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
