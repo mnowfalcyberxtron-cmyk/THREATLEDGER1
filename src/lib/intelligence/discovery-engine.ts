@@ -11,7 +11,7 @@
 
 import prisma from '@/lib/prisma';
 import { getISTMonthBoundaries, getCurrentISTMonthBoundaries } from './date-normalization';
-import { VerificationStatus, SourceLineage } from '@prisma/client';
+import { VerificationStatus, SourceLineage, SyncStatus, DiscoveryStatus, GroupSource } from '@prisma/client';
 
 export interface DiscoverySummaryMetrics {
   firstPublicClaimThisMonth: number;
@@ -73,7 +73,7 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
   });
 
   // 2. First Observed by ThreatLedger This Month:
-  // Must NOT be historical archive import (RANSOMWATCH / HISTORICAL_IMPORT)
+  // Must NOT be historical archive import or baseline
   const firstObservedByThreatLedgerThisMonth = await prisma.ransomwareGroup.count({
     where: {
       firstObservedAt: {
@@ -81,18 +81,18 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
         lt: endUTC,
       },
       discoveryStatus: {
-        notIn: ['HISTORICAL_IMPORT', 'BASELINE'],
+        notIn: [DiscoveryStatus.BASELINE],
       },
       source: {
-        notIn: ['RANSOMWATCH'],
+        notIn: [GroupSource.RANSOMWATCH],
       },
     },
   });
 
-  // 3. Pending Verification
+  // 3. Pending Verification (UNVERIFIED)
   const pendingVerification = await prisma.ransomwareGroup.count({
     where: {
-      verificationStatus: 'PENDING',
+      verificationStatus: VerificationStatus.UNVERIFIED,
     },
   });
 
@@ -112,17 +112,14 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
   // 5. Historical Groups Imported
   const historicalGroupsImported = await prisma.ransomwareGroup.count({
     where: {
-      OR: [
-        { discoveryStatus: 'HISTORICAL_IMPORT' },
-        { source: 'RANSOMWATCH' },
-      ],
+      source: GroupSource.RANSOMWATCH,
     },
   });
 
   // 6. Sources with Successful Sync
   const sourcesWithSuccessfulSync = await prisma.intelligenceSource.count({
     where: {
-      lastSuccessfulSyncAt: { not: null },
+      lastSyncStatus: SyncStatus.SUCCESS,
     },
   });
 
@@ -142,44 +139,45 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
  */
 export async function getSourcesStatusPanel(): Promise<SourceStatusItem[]> {
   const sources = await prisma.intelligenceSource.findMany({
-    orderBy: { sourceId: 'asc' },
+    orderBy: { id: 'asc' },
   });
 
   const panelItems: SourceStatusItem[] = [];
 
   for (const s of sources) {
     const obsCount = await prisma.groupSourceObservation.count({
-      where: { sourceId: s.sourceId },
+      where: { sourceId: s.id },
     });
 
+    const isHistorical = s.lineage === SourceLineage.HISTORICAL_ARCHIVE || s.sourceType === 'HISTORICAL_ARCHIVE';
     let displayStatus: 'ONLINE' | 'STANDBY' | 'ERROR' | 'ARCHIVED' = 'STANDBY';
-    if (s.isHistorical) {
+    if (isHistorical) {
       displayStatus = 'ARCHIVED';
     } else if (s.lastError) {
       displayStatus = 'ERROR';
-    } else if (s.lastSuccessfulSyncAt) {
+    } else if (s.lastSyncStatus === SyncStatus.SUCCESS) {
       displayStatus = 'ONLINE';
     }
 
     panelItems.push({
-      sourceId: s.sourceId,
+      sourceId: s.id,
       name: s.name,
       sourceType: s.sourceType,
-      sourceLineage: s.sourceLineage,
+      sourceLineage: s.lineage,
       status: displayStatus,
-      lastChecked: s.lastCheckedAt,
-      lastSuccessfulSync: s.lastSuccessfulSyncAt,
+      lastChecked: s.lastSyncAt,
+      lastSuccessfulSync: s.lastSyncStatus === SyncStatus.SUCCESS ? s.lastSyncAt : null,
       recordsRetrieved: obsCount,
       canonicalGroupsCount: obsCount,
-      isHistorical: s.isHistorical,
-      freshness: s.isHistorical
+      isHistorical,
+      freshness: isHistorical
         ? 'Archived (Static March 2026)'
-        : s.lastSuccessfulSyncAt
+        : s.lastSyncStatus === SyncStatus.SUCCESS
         ? 'Active Sync'
         : 'Awaiting Configuration',
-      notes: s.sourceLineage === 'DERIVED_OR_MIRRORED'
+      notes: s.lineage === SourceLineage.DERIVED_OR_MIRRORED
         ? 'Ransomware.live-backed upstream cache; provides first-claim metadata.'
-        : s.isHistorical
+        : isHistorical
         ? 'Read-only historical repository. One-time import.'
         : 'Primary live intelligence feed.',
     });
@@ -223,13 +221,10 @@ export async function getDiscoveryRecords(params: DiscoveryFilterParams) {
       gte: boundaries.startUTC,
       lt: boundaries.endUTC,
     };
-    where.discoveryStatus = { notIn: ['HISTORICAL_IMPORT', 'BASELINE'] };
-    where.source = { notIn: ['RANSOMWATCH'] };
+    where.discoveryStatus = { notIn: [DiscoveryStatus.BASELINE] };
+    where.source = { notIn: [GroupSource.RANSOMWATCH] };
   } else if (dateType === 'HISTORICAL_ONLY') {
-    where.OR = [
-      { discoveryStatus: 'HISTORICAL_IMPORT' },
-      { source: 'RANSOMWATCH' },
-    ];
+    where.source = GroupSource.RANSOMWATCH;
   }
 
   // Source filter
@@ -262,19 +257,26 @@ export async function getDiscoveryRecords(params: DiscoveryFilterParams) {
         sourceObservations: {
           select: {
             sourceId: true,
-            observedName: true,
-            sourceLineage: true,
-            timestampSemantic: true,
+            sourceGroupName: true,
+            semantic: true,
             firstClaimAt: true,
-            lastClaimAt: true,
-            retrievedAt: true,
+            observedAt: true,
+            source: {
+              select: {
+                lineage: true,
+                name: true,
+              },
+            },
           },
         },
-        verifiedBy: {
-          select: {
-            fullName: true,
-            user: { select: { email: true } },
+        verifications: {
+          include: {
+            verifiedBy: {
+              select: { fullName: true },
+            },
           },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     }),
@@ -290,4 +292,3 @@ export async function getDiscoveryRecords(params: DiscoveryFilterParams) {
     reportingMonth: boundaries.monthKey,
   };
 }
-

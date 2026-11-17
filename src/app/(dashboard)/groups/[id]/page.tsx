@@ -15,6 +15,7 @@ import {
   FileText,
   Clock,
   GitMerge,
+  GitBranch,
   ArrowLeft,
   Calendar,
   AlertCircle,

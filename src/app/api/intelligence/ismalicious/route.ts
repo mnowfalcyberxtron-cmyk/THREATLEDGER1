@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
-import { encryptCredential, decryptCredential } from '@/lib/crypto/encryption';
+import { encryptCredential } from '@/lib/crypto/encryption';
 import {
   testIsMaliciousConnection,
   fetchIsMaliciousGroups,
   maskCredential,
+  getIsMaliciousCredentials,
 } from '@/lib/intelligence/sources/ismalicious';
 import { correlateGroup, linkGroupObservation } from '@/lib/intelligence/correlation';
+import { SourceLineage, SyncStatus, VerificationStatus, ObservationSemantic, DiscoveryStatus, GroupStatus } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,7 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     const source = await prisma.intelligenceSource.findUnique({
-      where: { sourceId: 'ISMALICIOUS' },
+      where: { id: 'ISMALICIOUS' },
     });
 
     const credential = await prisma.sourceCredential.findFirst({
@@ -33,9 +35,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       configured: !!credential || !!creds?.apiKey,
       maskedKey: creds?.apiKey ? maskCredential(creds.apiKey) : null,
-      isActive: source?.isActive ?? false,
-      lastCheckedAt: source?.lastCheckedAt || null,
-      lastSuccessfulSyncAt: source?.lastSuccessfulSyncAt || null,
+      isActive: source?.isEnabled ?? false,
+      lastCheckedAt: source?.lastSyncAt || null,
+      lastSuccessfulSyncAt: source?.lastSyncStatus === 'SUCCESS' ? source.lastSyncAt : null,
       lastError: source?.lastError || null,
       recordsCount: observationCount,
       sourceLineage: 'DERIVED_OR_MIRRORED',
@@ -82,18 +84,20 @@ export async function POST(req: NextRequest) {
       const testResult = await testIsMaliciousConnection(keyToUse, secretToUse);
 
       await prisma.intelligenceSource.upsert({
-        where: { sourceId: 'ISMALICIOUS' },
+        where: { id: 'ISMALICIOUS' },
         update: {
-          lastCheckedAt: new Date(),
+          lastSyncAt: new Date(),
+          lastSyncStatus: testResult.success ? SyncStatus.SUCCESS : SyncStatus.FAILED,
           lastError: testResult.success ? null : testResult.message,
         },
         create: {
-          sourceId: 'ISMALICIOUS',
+          id: 'ISMALICIOUS',
           name: 'isMalicious Ransomware Intelligence',
           sourceType: 'API',
-          sourceLineage: 'DERIVED_OR_MIRRORED',
-          baseUrl: 'https://api.ismalicious.com',
-          lastCheckedAt: new Date(),
+          lineage: SourceLineage.DERIVED_OR_MIRRORED,
+          isEnabled: true,
+          lastSyncAt: new Date(),
+          lastSyncStatus: testResult.success ? SyncStatus.SUCCESS : SyncStatus.FAILED,
           lastError: testResult.success ? null : testResult.message,
         },
       });
@@ -149,22 +153,22 @@ export async function POST(req: NextRequest) {
 
       // Update IntelligenceSource
       await prisma.intelligenceSource.upsert({
-        where: { sourceId: 'ISMALICIOUS' },
+        where: { id: 'ISMALICIOUS' },
         update: {
-          isActive: testResult.success,
-          lastCheckedAt: new Date(),
-          lastSuccessfulSyncAt: testResult.success ? new Date() : undefined,
+          isEnabled: testResult.success,
+          lastSyncAt: new Date(),
+          lastSyncStatus: testResult.success ? SyncStatus.SUCCESS : SyncStatus.FAILED,
           lastError: testResult.success ? null : testResult.message,
         },
         create: {
-          sourceId: 'ISMALICIOUS',
+          id: 'ISMALICIOUS',
           name: 'isMalicious Ransomware Intelligence',
           sourceType: 'API',
-          sourceLineage: 'DERIVED_OR_MIRRORED',
-          baseUrl: 'https://api.ismalicious.com',
-          isActive: testResult.success,
-          lastCheckedAt: new Date(),
-          lastSuccessfulSyncAt: testResult.success ? new Date() : undefined,
+          lineage: SourceLineage.DERIVED_OR_MIRRORED,
+          isEnabled: testResult.success,
+          lastSyncAt: new Date(),
+          lastSyncStatus: testResult.success ? SyncStatus.SUCCESS : SyncStatus.FAILED,
+          lastError: testResult.success ? null : testResult.message,
         },
       });
 
@@ -185,9 +189,10 @@ export async function POST(req: NextRequest) {
       const fetchResult = await fetchIsMaliciousGroups(keyToUse, secretToUse, 500);
       if (!fetchResult.success || !fetchResult.groups) {
         await prisma.intelligenceSource.update({
-          where: { sourceId: 'ISMALICIOUS' },
+          where: { id: 'ISMALICIOUS' },
           data: {
-            lastCheckedAt: new Date(),
+            lastSyncAt: new Date(),
+            lastSyncStatus: SyncStatus.FAILED,
             lastError: fetchResult.message,
           },
         });
@@ -201,21 +206,23 @@ export async function POST(req: NextRequest) {
       for (const group of fetchResult.groups) {
         const correlation = await correlateGroup(group.name);
         let canonicalGroupId = correlation.canonicalGroupId;
+        const groupFirstClaimDate = group.firstClaimAt ? new Date(group.firstClaimAt) : null;
+        const groupLastClaimDate = group.lastClaimAt ? new Date(group.lastClaimAt) : null;
 
         if (!canonicalGroupId) {
           // Create new group detected by ThreatLedger via isMalicious
           const newGroup = await prisma.ransomwareGroup.create({
             data: {
               name: group.name,
-              slug: group.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
+              normalizedName: group.name.toLowerCase().trim(),
               source: 'ISMALICIOUS',
-              discoveryStatus: 'NEWLY_LISTED',
-              verificationStatus: 'PENDING',
+              discoveryStatus: DiscoveryStatus.NEWLY_LISTED,
+              verificationStatus: VerificationStatus.UNVERIFIED,
               firstObservedAt: new Date(),
-              firstClaimAt: group.firstClaimAt,
+              firstClaimAt: groupFirstClaimDate,
               firstClaimSource: group.firstClaimAt ? 'isMalicious' : null,
-              lastSeenAt: group.lastClaimAt,
-              isActive: group.activity === 'active',
+              lastSeenAt: groupLastClaimDate,
+              status: group.activity === 'active' ? GroupStatus.ACTIVE : GroupStatus.INACTIVE,
             },
           });
           canonicalGroupId = newGroup.id;
@@ -223,18 +230,18 @@ export async function POST(req: NextRequest) {
         } else {
           matchedCount++;
           // If isMalicious provides a valid firstClaimAt and existing record has none or later
-          if (group.firstClaimAt) {
+          if (groupFirstClaimDate) {
             const existing = await prisma.ransomwareGroup.findUnique({
               where: { id: canonicalGroupId },
               select: { firstClaimAt: true },
             });
-            if (!existing?.firstClaimAt || group.firstClaimAt < existing.firstClaimAt) {
+            if (!existing?.firstClaimAt || groupFirstClaimDate < existing.firstClaimAt) {
               await prisma.ransomwareGroup.update({
                 where: { id: canonicalGroupId },
                 data: {
-                  firstClaimAt: group.firstClaimAt,
+                  firstClaimAt: groupFirstClaimDate,
                   firstClaimSource: 'isMalicious',
-                  lastSeenAt: group.lastClaimAt || undefined,
+                  lastSeenAt: groupLastClaimDate || undefined,
                 },
               });
               firstClaimEnrichedCount++;
@@ -248,21 +255,22 @@ export async function POST(req: NextRequest) {
           canonicalGroupId,
           externalId: group.name.toLowerCase(),
           observedName: group.name,
-          sourceLineage: 'DERIVED_OR_MIRRORED',
-          timestampSemantic: 'FIRST_CLAIM',
-          firstClaimAt: group.firstClaimAt,
-          lastClaimAt: group.lastClaimAt,
+          sourceLineage: SourceLineage.DERIVED_OR_MIRRORED,
+          timestampSemantic: ObservationSemantic.FIRST_CLAIM,
+          firstClaimAt: groupFirstClaimDate,
+          lastClaimAt: groupLastClaimDate,
           rawPayload: group,
         });
       }
 
       // Update source status
       await prisma.intelligenceSource.update({
-        where: { sourceId: 'ISMALICIOUS' },
+        where: { id: 'ISMALICIOUS' },
         data: {
-          lastCheckedAt: new Date(),
-          lastSuccessfulSyncAt: new Date(),
+          lastSyncAt: new Date(),
+          lastSyncStatus: SyncStatus.SUCCESS,
           lastError: null,
+          recordsTotal: { increment: createdCount + matchedCount },
         },
       });
 
@@ -278,8 +286,8 @@ export async function POST(req: NextRequest) {
 
     if (action === 'DISABLE') {
       await prisma.intelligenceSource.update({
-        where: { sourceId: 'ISMALICIOUS' },
-        data: { isActive: false },
+        where: { id: 'ISMALICIOUS' },
+        data: { isEnabled: false },
       });
       return NextResponse.json({ success: true, message: 'isMalicious integration disabled' });
     }
@@ -289,4 +297,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-

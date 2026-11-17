@@ -4,7 +4,7 @@
  * Archived: 3 March 2026 (Read-Only Historical Archive)
  *
  * Rules:
- * - Strictly HISTORICAL_ARCHIVE sourceType
+ * - Strictly HISTORICAL_ARCHIVE sourceType & lineage
  * - Never treated as a live or recurring discovery feed
  * - Idempotent one-time import guarded by HistoricalImportRun and sha256 checksums
  * - Groups and posts are mapped with historical provenance
@@ -15,6 +15,7 @@
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { parseSourceTimestamp } from '../date-normalization';
+import { SyncStatus, SourceLineage, ObservationSemantic, GroupSource, DiscoveryStatus, VerificationStatus, GroupStatus } from '@prisma/client';
 
 export const RANSOMWATCH_GROUPS_URL = 'https://raw.githubusercontent.com/joshhighet/ransomwatch/main/groups.json';
 export const RANSOMWATCH_POSTS_URL = 'https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json';
@@ -63,11 +64,11 @@ export interface HistoricalImportResult {
 export async function getRansomWatchImportStatus() {
   const latestRun = await prisma.historicalImportRun.findFirst({
     where: { sourceId: 'RANSOMWATCH' },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { startedAt: 'desc' },
   });
 
   return {
-    hasImported: latestRun?.status === 'SUCCESS',
+    hasImported: latestRun?.status === SyncStatus.SUCCESS,
     lastRun: latestRun,
   };
 }
@@ -82,16 +83,16 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
   // Check previous successful import unless forceRerun is true
   if (!forceRerun) {
     const existing = await prisma.historicalImportRun.findFirst({
-      where: { sourceId: 'RANSOMWATCH', status: 'SUCCESS' },
+      where: { sourceId: 'RANSOMWATCH', status: SyncStatus.SUCCESS },
     });
     if (existing) {
       return {
         runId: existing.id,
         status: 'ALREADY_IMPORTED',
-        groupsFound: existing.recordCount,
+        groupsFound: existing.recordsRead,
         groupsImported: 0,
         groupsUpdated: 0,
-        groupsSkipped: existing.recordCount,
+        groupsSkipped: existing.recordsRead,
         earliestPostDate: null,
         latestPostDate: null,
         errors: [],
@@ -122,10 +123,12 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
     const failedRun = await prisma.historicalImportRun.create({
       data: {
         sourceId: 'RANSOMWATCH',
-        sourceUrl: RANSOMWATCH_GROUPS_URL,
-        recordCount: 0,
-        status: 'FAILED',
-        errorLog: errors.join('; '),
+        repositoryUrl: RANSOMWATCH_GROUPS_URL,
+        recordsRead: 0,
+        status: SyncStatus.FAILED,
+        error: errors.join('; '),
+        startedAt: new Date(startTime),
+        completedAt: new Date(),
       },
     });
     return {
@@ -186,23 +189,24 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
   let skippedCount = 0;
   const importTimestamp = new Date();
 
-  // Ensure RANSOMWATCH intelligence source exists
-  const sourceRecord = await prisma.intelligenceSource.upsert({
-    where: { sourceId: 'RANSOMWATCH' },
+  // Ensure RANSOMWATCH intelligence source exists in IntelligenceSource table
+  await prisma.intelligenceSource.upsert({
+    where: { id: 'RANSOMWATCH' },
     update: {
-      lastCheckedAt: importTimestamp,
-      lastSuccessfulSyncAt: importTimestamp,
+      lastSyncAt: importTimestamp,
+      lastSyncStatus: SyncStatus.SUCCESS,
+      recordsTotal: groupsData.length,
+      lastError: null,
     },
     create: {
-      sourceId: 'RANSOMWATCH',
+      id: 'RANSOMWATCH',
       name: 'RansomWatch Historical Repository',
       sourceType: 'HISTORICAL_ARCHIVE',
-      sourceLineage: 'INDEPENDENT',
-      baseUrl: 'https://github.com/joshhighet/ransomwatch',
-      isActive: false, // archived, not a live feed
-      isHistorical: true,
-      lastCheckedAt: importTimestamp,
-      lastSuccessfulSyncAt: importTimestamp,
+      lineage: SourceLineage.HISTORICAL_ARCHIVE,
+      isEnabled: true,
+      lastSyncAt: importTimestamp,
+      lastSyncStatus: SyncStatus.SUCCESS,
+      recordsTotal: groupsData.length,
     },
   });
 
@@ -245,22 +249,21 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
         });
         updatedCount++;
       } else {
-        // Create as HISTORICAL_IMPORT. Notice firstObservedAt is set to importTimestamp,
-        // but discoveryStatus is strictly HISTORICAL_IMPORT so it is never counted as a current-month discovery!
+        // Create as BASELINE historical import. Strictly isolated from live discoveries
         const createdGroup = await prisma.ransomwareGroup.create({
           data: {
             name: rawName,
-            slug: normalizedName.replace(/[^a-z0-9_-]/g, '-'),
-            source: 'RANSOMWATCH',
-            discoveryStatus: 'HISTORICAL_IMPORT',
-            verificationStatus: 'VERIFIED', // Known historical actor from 2021-2026 archive
+            normalizedName,
+            source: GroupSource.RANSOMWATCH,
+            discoveryStatus: DiscoveryStatus.BASELINE,
+            verificationStatus: VerificationStatus.VERIFIED_DISTINCT,
             verificationNotes: 'Historical archive import from joshhighet/ransomwatch repository',
             firstObservedAt: importTimestamp,
             firstClaimAt: firstClaim,
             firstClaimSource: firstClaim ? 'RANSOMWATCH' : null,
             lastSeenAt: lastClaim,
             importedAt: importTimestamp,
-            isActive: false, // Inactive historical group by default unless live source reports activity
+            status: GroupStatus.INACTIVE,
           },
         });
         canonicalGroupId = createdGroup.id;
@@ -269,32 +272,38 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
 
       // Record GroupSourceObservation with HISTORICAL_ARCHIVE provenance
       if (canonicalGroupId) {
-        await prisma.groupSourceObservation.upsert({
+        const existingObs = await prisma.groupSourceObservation.findFirst({
           where: {
-            sourceId_externalId: {
-              sourceId: 'RANSOMWATCH',
-              externalId: normalizedName,
-            },
-          },
-          update: {
-            retrievedAt: importTimestamp,
-            firstClaimAt: firstClaim,
-            lastClaimAt: lastClaim,
-            rawPayload: rwGroup as any,
-          },
-          create: {
-            sourceId: 'RANSOMWATCH',
             groupId: canonicalGroupId,
-            externalId: normalizedName,
-            observedName: rawName,
-            sourceLineage: 'INDEPENDENT',
-            timestampSemantic: 'IMPORTED',
-            firstClaimAt: firstClaim,
-            lastClaimAt: lastClaim,
-            retrievedAt: importTimestamp,
-            rawPayload: rwGroup as any,
+            sourceId: 'RANSOMWATCH',
           },
         });
+
+        if (existingObs) {
+          await prisma.groupSourceObservation.update({
+            where: { id: existingObs.id },
+            data: {
+              sourceGroupName: rawName,
+              externalRecordId: normalizedName,
+              firstClaimAt: firstClaim,
+              observedAt: importTimestamp,
+              rawPayload: rwGroup as any,
+            },
+          });
+        } else {
+          await prisma.groupSourceObservation.create({
+            data: {
+              groupId: canonicalGroupId,
+              sourceId: 'RANSOMWATCH',
+              sourceGroupName: rawName,
+              externalRecordId: normalizedName,
+              firstClaimAt: firstClaim,
+              semantic: firstClaim ? ObservationSemantic.FIRST_CLAIM : ObservationSemantic.THREATLEDGER_OBSERVED,
+              observedAt: importTimestamp,
+              rawPayload: rwGroup as any,
+            },
+          });
+        }
       }
     } catch (groupErr: any) {
       errors.push(`Error processing group ${rawName}: ${groupErr.message}`);
@@ -305,22 +314,24 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
   const runRecord = await prisma.historicalImportRun.create({
     data: {
       sourceId: 'RANSOMWATCH',
-      sourceUrl: RANSOMWATCH_GROUPS_URL,
-      recordCount: groupsData.length,
-      importedCount,
-      updatedCount,
-      skippedCount,
-      fileChecksum: groupsSha256,
-      earliestRecordDate: earliestGlobalClaim,
-      latestRecordDate: latestGlobalClaim,
-      status: errors.length > 5 ? 'FAILED' : 'SUCCESS',
-      errorLog: errors.length > 0 ? errors.slice(0, 10).join('; ') : null,
+      repositoryUrl: RANSOMWATCH_GROUPS_URL,
+      contentHash: groupsSha256,
+      recordsRead: groupsData.length,
+      recordsImported: importedCount,
+      recordsSkipped: skippedCount,
+      recordsMatched: updatedCount,
+      dateCoverageStart: earliestGlobalClaim,
+      dateCoverageEnd: latestGlobalClaim,
+      status: errors.length > 5 ? SyncStatus.FAILED : SyncStatus.SUCCESS,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      error: errors.length > 0 ? errors.slice(0, 10).join('; ') : null,
     },
   });
 
   return {
     runId: runRecord.id,
-    status: runRecord.status as any,
+    status: runRecord.status === SyncStatus.SUCCESS ? 'SUCCESS' : 'FAILED',
     groupsFound: groupsData.length,
     groupsImported: importedCount,
     groupsUpdated: updatedCount,
@@ -331,4 +342,3 @@ export async function runRansomWatchHistoricalImport(forceRerun = false): Promis
     durationMs: Date.now() - startTime,
   };
 }
-

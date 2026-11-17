@@ -62,7 +62,7 @@ export async function correlateGroup(
     where: {
       name: { equals: cleanName, mode: 'insensitive' },
     },
-    select: { id: true, name: true, aliases: true },
+    select: { id: true, name: true },
   });
 
   if (exactGroup) {
@@ -78,7 +78,11 @@ export async function correlateGroup(
   // 2. Check known aliases on existing groups
   const aliasMatch = await prisma.ransomwareGroup.findFirst({
     where: {
-      aliases: { has: cleanName },
+      aliases: {
+        some: {
+          alias: { equals: cleanName, mode: 'insensitive' },
+        },
+      },
     },
     select: { id: true, name: true },
   });
@@ -95,7 +99,11 @@ export async function correlateGroup(
 
   // 3. Normalized string match across all groups
   const allGroups = await prisma.ransomwareGroup.findMany({
-    select: { id: true, name: true, aliases: true },
+    select: {
+      id: true,
+      name: true,
+      aliases: { select: { alias: true } },
+    },
   });
 
   for (const group of allGroups) {
@@ -118,6 +126,19 @@ export async function correlateGroup(
           canonicalGroupName: group.name,
           confidence: 0.9,
           notes: `Incoming alias "${a}" matched canonical ${group.name}`,
+        };
+      }
+    }
+
+    // Check group existing aliases against normalized input
+    for (const ea of group.aliases) {
+      if (normalizeActorName(ea.alias) === normalized) {
+        return {
+          matchType: 'KNOWN_ALIAS',
+          canonicalGroupId: group.id,
+          canonicalGroupName: group.name,
+          confidence: 0.9,
+          notes: `Normalized match against group alias ${ea.alias}`,
         };
       }
     }
@@ -151,41 +172,42 @@ export async function linkGroupObservation({
   canonicalGroupId: string;
   externalId: string;
   observedName: string;
-  sourceLineage: SourceLineage;
+  sourceLineage?: SourceLineage;
   timestampSemantic: ObservationSemantic;
   firstClaimAt: Date | null;
   lastClaimAt: Date | null;
   rawPayload?: any;
 }) {
-  const observation = await prisma.groupSourceObservation.upsert({
+  const existing = await prisma.groupSourceObservation.findFirst({
     where: {
-      sourceId_externalId: {
-        sourceId,
-        externalId,
-      },
-    },
-    update: {
       groupId: canonicalGroupId,
-      observedName,
-      firstClaimAt: firstClaimAt ?? undefined,
-      lastClaimAt: lastClaimAt ?? undefined,
-      retrievedAt: new Date(),
-      rawPayload: rawPayload ?? undefined,
-    },
-    create: {
       sourceId,
-      groupId: canonicalGroupId,
-      externalId,
-      observedName,
-      sourceLineage,
-      timestampSemantic,
-      firstClaimAt,
-      lastClaimAt,
-      retrievedAt: new Date(),
-      rawPayload,
+      externalRecordId: externalId,
     },
   });
 
-  return observation;
-}
+  if (existing) {
+    return await prisma.groupSourceObservation.update({
+      where: { id: existing.id },
+      data: {
+        sourceGroupName: observedName,
+        firstClaimAt: firstClaimAt ?? undefined,
+        observedAt: new Date(),
+        rawPayload: rawPayload ?? undefined,
+      },
+    });
+  }
 
+  return await prisma.groupSourceObservation.create({
+    data: {
+      sourceId,
+      groupId: canonicalGroupId,
+      sourceGroupName: observedName,
+      externalRecordId: externalId,
+      semantic: timestampSemantic,
+      firstClaimAt,
+      observedAt: new Date(),
+      rawPayload,
+    },
+  });
+}

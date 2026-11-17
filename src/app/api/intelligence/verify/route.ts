@@ -19,31 +19,17 @@ export async function POST(req: NextRequest) {
 
     const group = await prisma.ransomwareGroup.findUnique({
       where: { id: groupId },
-      include: { verifiedBy: true },
     });
 
     if (!group) {
       return NextResponse.json({ error: 'Threat group not found' }, { status: 404 });
     }
 
-    // Resolve profileId for foreign key relation
-    let userProfile = await prisma.userProfile.findUnique({
-      where: { userId: session.id },
-    });
-    if (!userProfile) {
-      userProfile = await prisma.userProfile.create({
-        data: {
-          userId: session.id,
-          fullName: session.name || session.email,
-        },
-      });
-    }
-
-    let targetStatus: VerificationStatus = 'VERIFIED';
-    if (action === 'VERIFY') targetStatus = 'VERIFIED';
-    else if (action === 'REJECT') targetStatus = 'REJECTED';
-    else if (action === 'LINK_ALIAS') targetStatus = 'ALIAS_LINKED';
-    else if (action === 'REBRAND_REVIEW') targetStatus = 'REBRAND_REVIEW';
+    let targetStatus: VerificationStatus = VerificationStatus.VERIFIED_DISTINCT;
+    if (action === 'VERIFY') targetStatus = VerificationStatus.VERIFIED_DISTINCT;
+    else if (action === 'REJECT') targetStatus = VerificationStatus.REJECTED_FALSE_POSITIVE;
+    else if (action === 'LINK_ALIAS') targetStatus = VerificationStatus.LINKED_AS_ALIAS;
+    else if (action === 'REBRAND_REVIEW') targetStatus = VerificationStatus.POSSIBLE_REBRAND;
     else {
       return NextResponse.json({ error: `Invalid verification action: ${action}` }, { status: 400 });
     }
@@ -54,15 +40,19 @@ export async function POST(req: NextRequest) {
         where: { id: aliasTargetId },
       });
       if (targetGroup) {
-        const existingAliases = targetGroup.aliases || [];
-        if (!existingAliases.includes(group.name)) {
-          await prisma.ransomwareGroup.update({
-            where: { id: aliasTargetId },
-            data: {
-              aliases: [...existingAliases, group.name],
+        await prisma.groupAlias.upsert({
+          where: {
+            groupId_alias: {
+              groupId: aliasTargetId,
+              alias: group.name,
             },
-          });
-        }
+          },
+          update: {},
+          create: {
+            groupId: aliasTargetId,
+            alias: group.name,
+          },
+        });
       }
     }
 
@@ -72,7 +62,7 @@ export async function POST(req: NextRequest) {
       data: {
         verificationStatus: targetStatus,
         verificationNotes: notes || null,
-        verifiedById: userProfile.id,
+        verifiedById: session.profileId,
         lastVerifiedAt: new Date(),
       },
     });
@@ -81,8 +71,10 @@ export async function POST(req: NextRequest) {
     const auditRecord = await prisma.groupVerification.create({
       data: {
         groupId,
-        verifiedById: userProfile.id,
-        status: targetStatus,
+        verifiedById: session.profileId,
+        action,
+        previousStatus: group.verificationStatus,
+        newStatus: targetStatus,
         notes: notes || `Action ${action} executed by ${session.email}`,
       },
     });
@@ -96,4 +88,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-

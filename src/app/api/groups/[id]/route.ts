@@ -27,14 +27,12 @@ export async function GET(
           orderBy: { detectedAt: 'desc' },
         },
         sourceObservations: {
-          orderBy: { retrievedAt: 'desc' },
+          include: { source: true },
+          orderBy: { observedAt: 'desc' },
         },
         verifications: {
           include: { verifiedBy: { select: { fullName: true } } },
           orderBy: { createdAt: 'desc' },
-        },
-        verifiedBy: {
-          select: { fullName: true },
         },
         assignments: {
           include: {
