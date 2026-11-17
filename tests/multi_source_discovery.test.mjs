@@ -178,8 +178,8 @@ describe('ThreatLedger — Multi-Source Threat Actor Discovery Test Suite', () =
       assert.notEqual(isMaliciousLineage, 'INDEPENDENT', 'isMalicious cannot be labeled independent from Ransomware.live');
     });
 
-    test('RansomWatch historical records never count as current-month platform discoveries', () => {
-      const candidate = {
+    test('RansomWatch historical records and initial baseline records never count as current-month live discoveries', () => {
+      const historicalCandidate = {
         name: 'DarkSide',
         source: 'RANSOMWATCH',
         discoveryStatus: 'HISTORICAL_IMPORT',
@@ -187,16 +187,24 @@ describe('ThreatLedger — Multi-Source Threat Actor Discovery Test Suite', () =
         firstClaimAt: new Date('2021-08-11T02:40:48Z'),   // 2021 claim
       };
 
+      const baselineCandidate = {
+        name: 'LockBit 3.0',
+        source: 'RANSOMWARE_LIVE',
+        discoveryStatus: 'BASELINE',
+        firstObservedAt: new Date('2026-11-16T12:00:00Z'),
+        firstClaimAt: null,
+      };
+
       const boundaries = getISTMonthBoundaries(2026, 11);
 
-      // Rule: firstObservedByThreatLedgerThisMonth requires discoveryStatus != HISTORICAL_IMPORT and source != RANSOMWATCH
-      const isNewLiveDiscovery =
-        candidate.firstObservedAt >= boundaries.startUTC &&
-        candidate.firstObservedAt < boundaries.endUTC &&
-        candidate.discoveryStatus !== 'HISTORICAL_IMPORT' &&
-        candidate.source !== 'RANSOMWATCH';
+      const isLiveDiscovery = (g) =>
+        g.firstObservedAt >= boundaries.startUTC &&
+        g.firstObservedAt < boundaries.endUTC &&
+        !['HISTORICAL_IMPORT', 'BASELINE'].includes(g.discoveryStatus) &&
+        g.source !== 'RANSOMWATCH';
 
-      assert.equal(isNewLiveDiscovery, false, 'Historical archive records must NOT be counted as new live discoveries');
+      assert.equal(isLiveDiscovery(historicalCandidate), false, 'Historical archive records must NOT be counted as new live discoveries');
+      assert.equal(isLiveDiscovery(baselineCandidate), false, 'Initial baseline records must NOT be counted as new live discoveries');
     });
   });
 

@@ -75,6 +75,9 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
             discoveryStatus,
             discoveryMonth: currentMonth,
             threatLedgerDetectedAt: new Date(),
+            firstObservedAt: new Date(),
+            firstClaimAt: raw.firstSeenSourceAt ? new Date(raw.firstSeenSourceAt) : undefined,
+            firstClaimSource: raw.firstSeenSourceAt ? 'Ransomware.live' : undefined,
             firstSeenSourceAt: raw.firstSeenSourceAt ? new Date(raw.firstSeenSourceAt) : undefined,
             sourceAddedAt: raw.sourceAddedAt ? new Date(raw.sourceAddedAt) : undefined,
             websiteUrl: raw.websiteUrl,
@@ -122,14 +125,27 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
         recordsCreated++;
       } else {
         // Update existing record
+        const updateData: any = {
+          description: raw.description || existing.description,
+          websiteUrl: raw.websiteUrl || existing.websiteUrl,
+          victimCount: Math.max(existing.victimCount, raw.victimCount),
+          lastObservedAt: new Date(),
+        };
+
+        // Backfill firstObservedAt if null
+        if (!existing.firstObservedAt) {
+          updateData.firstObservedAt = existing.threatLedgerDetectedAt || new Date();
+        }
+
+        // Backfill firstClaimAt if source provides it
+        if (!existing.firstClaimAt && raw.firstSeenSourceAt) {
+          updateData.firstClaimAt = new Date(raw.firstSeenSourceAt);
+          updateData.firstClaimSource = 'Ransomware.live';
+        }
+
         await prisma.ransomwareGroup.update({
           where: { id: existing.id },
-          data: {
-            description: raw.description || existing.description,
-            websiteUrl: raw.websiteUrl || existing.websiteUrl,
-            victimCount: Math.max(existing.victimCount, raw.victimCount),
-            lastObservedAt: new Date(),
-          },
+          data: updateData,
         });
         recordsUpdated++;
       }

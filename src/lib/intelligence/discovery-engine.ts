@@ -81,7 +81,7 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
         lt: endUTC,
       },
       discoveryStatus: {
-        notIn: ['HISTORICAL_IMPORT'],
+        notIn: ['HISTORICAL_IMPORT', 'BASELINE'],
       },
       source: {
         notIn: ['RANSOMWATCH'],
@@ -223,7 +223,7 @@ export async function getDiscoveryRecords(params: DiscoveryFilterParams) {
       gte: boundaries.startUTC,
       lt: boundaries.endUTC,
     };
-    where.discoveryStatus = { notIn: ['HISTORICAL_IMPORT'] };
+    where.discoveryStatus = { notIn: ['HISTORICAL_IMPORT', 'BASELINE'] };
     where.source = { notIn: ['RANSOMWATCH'] };
   } else if (dateType === 'HISTORICAL_ONLY') {
     where.OR = [
