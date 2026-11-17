@@ -77,9 +77,17 @@ export function buildIsMaliciousAuthHeader(apiKey: string, apiSecret: string): s
  * Test live connection to isMalicious using supplied or saved credentials.
  */
 export async function testIsMaliciousConnection(
-  overrideCredentials?: { apiKey: string; apiSecret: string }
+  overrideCredentials?: { apiKey: string; apiSecret: string } | string,
+  apiSecretArg?: string
 ): Promise<IsMaliciousConnectionTestResult> {
-  const creds = overrideCredentials || (await getIsMaliciousCredentials());
+  let creds: { apiKey: string; apiSecret: string } | null = null;
+  if (typeof overrideCredentials === 'string') {
+    creds = { apiKey: overrideCredentials, apiSecret: apiSecretArg || '' };
+  } else if (overrideCredentials && typeof overrideCredentials === 'object') {
+    creds = overrideCredentials;
+  } else {
+    creds = await getIsMaliciousCredentials();
+  }
 
   if (!creds || !creds.apiKey || !creds.apiSecret) {
     return {
@@ -171,13 +179,33 @@ export async function testIsMaliciousConnection(
 /**
  * Fetch full group inventory from isMalicious with first-claim metadata.
  */
-export async function fetchIsMaliciousGroups(limit: number = 500): Promise<IsMaliciousGroupsResponse> {
-  const creds = await getIsMaliciousCredentials();
-  if (!creds) {
+export async function fetchIsMaliciousGroups(
+  apiKeyOrLimit?: string | number,
+  apiSecretArg?: string,
+  limitArg: number = 500
+): Promise<IsMaliciousGroupsResponse & { success?: boolean; message?: string }> {
+  let apiKey = '';
+  let apiSecret = '';
+  let limit = 500;
+
+  if (typeof apiKeyOrLimit === 'string') {
+    apiKey = apiKeyOrLimit.trim();
+    apiSecret = (apiSecretArg || '').trim();
+    limit = limitArg || 500;
+  } else {
+    limit = typeof apiKeyOrLimit === 'number' ? apiKeyOrLimit : 500;
+    const creds = await getIsMaliciousCredentials();
+    if (creds) {
+      apiKey = creds.apiKey;
+      apiSecret = creds.apiSecret;
+    }
+  }
+
+  if (!apiKey || !apiSecret) {
     throw new Error('ISMALICIOUS_NOT_CONFIGURED');
   }
 
-  const authHeader = buildIsMaliciousAuthHeader(creds.apiKey, creds.apiSecret);
+  const authHeader = buildIsMaliciousAuthHeader(apiKey, apiSecret);
   const url = `${BASE_URL}/ransomware/groups?limit=${limit}&sort=activity`;
 
   const res = await fetch(url, {
@@ -211,6 +239,7 @@ export async function fetchIsMaliciousGroups(limit: number = 500): Promise<IsMal
   await incrementIsMaliciousUsage();
 
   return {
+    success: true,
     groups,
     total: Number(data.total || groups.length),
     limit: Number(data.limit || limit),
@@ -219,6 +248,15 @@ export async function fetchIsMaliciousGroups(limit: number = 500): Promise<IsMal
     freshnessHeader: freshness,
     retrievedAt: new Date(),
   };
+}
+
+/**
+ * Safely masks API keys and secrets for secure display (e.g. "e366••••4a6a").
+ */
+export function maskCredential(cred: string | null | undefined): string {
+  if (!cred) return '—';
+  if (cred.length <= 8) return '••••••••';
+  return `${cred.slice(0, 4)}••••${cred.slice(-4)}`;
 }
 
 async function incrementIsMaliciousUsage(): Promise<void> {
