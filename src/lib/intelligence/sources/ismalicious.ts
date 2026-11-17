@@ -37,28 +37,32 @@ export interface IsMaliciousConnectionTestResult {
  * Retrieve decrypted isMalicious credentials from SourceCredential or env.
  */
 export async function getIsMaliciousCredentials(): Promise<{ apiKey: string; apiSecret: string } | null> {
-  const credRecord = await prisma.sourceCredential.findUnique({
-    where: { sourceId: 'ISMALICIOUS' },
-  });
+  try {
+    const credRecord = await prisma.sourceCredential.findUnique({
+      where: { sourceId: 'ISMALICIOUS' },
+    });
 
-  if (credRecord && credRecord.isEnabled && credRecord.encryptedApiKey && credRecord.encryptedApiSecret) {
-    try {
-      const apiKey = decryptCredential(credRecord.encryptedApiKey, credRecord.iv, credRecord.tag);
-      const apiSecret = decryptCredential(credRecord.encryptedApiSecret, credRecord.iv, credRecord.tag);
-      if (apiKey && apiSecret) {
-        return { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() };
+    if (credRecord && credRecord.isEnabled && credRecord.encryptedApiSecret) {
+      try {
+        const decrypted = decryptCredential(credRecord.encryptedApiSecret, credRecord.iv, credRecord.tag);
+        if (decrypted.startsWith('{')) {
+          const parsed = JSON.parse(decrypted);
+          return { apiKey: parsed.apiKey.trim(), apiSecret: parsed.apiSecret.trim() };
+        }
+        return { apiKey: credRecord.encryptedApiKey.trim(), apiSecret: decrypted.trim() };
+      } catch (e: any) {
+        console.error('[isMalicious] Failed to decrypt stored credentials:', e.message);
       }
-    } catch (e: any) {
-      console.error('[isMalicious] Failed to decrypt stored credentials:', e.message);
-      return null;
     }
+  } catch (dbErr: any) {
+    console.error('[isMalicious] Database read error:', dbErr.message);
   }
 
   // Fallback to environment variables if provided
   const envKey = process.env.ISMALICIOUS_API_KEY;
   const envSecret = process.env.ISMALICIOUS_API_SECRET;
-  if (envKey && envSecret) {
-    return { apiKey: envKey.trim(), apiSecret: envSecret.trim() };
+  if (envKey) {
+    return { apiKey: envKey.trim(), apiSecret: (envSecret || '').trim() };
   }
 
   return null;

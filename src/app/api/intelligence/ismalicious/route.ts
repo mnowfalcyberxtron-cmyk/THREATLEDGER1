@@ -21,16 +21,18 @@ export async function GET(req: NextRequest) {
     });
 
     const credential = await prisma.sourceCredential.findFirst({
-      where: { sourceId: 'ISMALICIOUS', isActive: true },
+      where: { sourceId: 'ISMALICIOUS', isEnabled: true },
     });
+
+    const creds = await getIsMaliciousCredentials();
 
     const observationCount = await prisma.groupSourceObservation.count({
       where: { sourceId: 'ISMALICIOUS' },
     });
 
     return NextResponse.json({
-      configured: !!credential,
-      maskedKey: credential?.maskedKey || null,
+      configured: !!credential || !!creds?.apiKey,
+      maskedKey: creds?.apiKey ? maskCredential(creds.apiKey) : null,
       isActive: source?.isActive ?? false,
       lastCheckedAt: source?.lastCheckedAt || null,
       lastSuccessfulSyncAt: source?.lastSuccessfulSyncAt || null,
@@ -57,17 +59,22 @@ export async function POST(req: NextRequest) {
 
     // Helper to get active credentials
     const getCredentials = async () => {
-      if (apiKey && apiSecret) {
-        return { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() };
+      let key = apiKey?.trim();
+      let secret = apiSecret?.trim();
+
+      if (!key || !secret) {
+        const stored = await getIsMaliciousCredentials();
+        if (stored) {
+          if (!key) key = stored.apiKey;
+          if (!secret) secret = stored.apiSecret;
+        }
       }
-      const cred = await prisma.sourceCredential.findFirst({
-        where: { sourceId: 'ISMALICIOUS', isActive: true },
-      });
-      if (!cred) {
-        throw new Error('No isMalicious credentials configured. Please provide API Key and Secret.');
+
+      if (!key || !secret) {
+        throw new Error('Both API Key and API Secret are required. Please enter them in Settings.');
       }
-      const decryptedSecret = decryptCredential(cred.encryptedSecret, cred.iv, cred.authTag);
-      return { apiKey: cred.keyId, apiSecret: decryptedSecret };
+
+      return { apiKey: key, apiSecret: secret };
     };
 
     if (action === 'TEST') {
@@ -100,41 +107,43 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Only administrators can configure intelligence credentials' }, { status: 403 });
       }
 
-      if (!apiKey || !apiSecret) {
+      const cleanKey = (apiKey || process.env.ISMALICIOUS_API_KEY || '').trim();
+      const cleanSecret = (apiSecret || process.env.ISMALICIOUS_API_SECRET || '').trim();
+
+      if (!cleanKey || !cleanSecret) {
         return NextResponse.json({ error: 'Both API Key and API Secret are required' }, { status: 400 });
       }
 
-      const cleanKey = apiKey.trim();
-      const cleanSecret = apiSecret.trim();
-
       // Test credentials before saving
       const testResult = await testIsMaliciousConnection(cleanKey, cleanSecret);
-      if (!testResult.success) {
-        return NextResponse.json({
-          error: `Credential verification failed: ${testResult.message}`,
-          statusCode: testResult.statusCode,
-        }, { status: 400 });
-      }
 
-      // Encrypt API Secret
-      const { encrypted, iv, tag } = encryptCredential(cleanSecret);
+      // Encrypt combined payload with AES-256-GCM
+      const payload = JSON.stringify({ apiKey: cleanKey, apiSecret: cleanSecret });
+      const { encrypted, iv, tag } = encryptCredential(payload);
 
-      // Deactivate older credentials
-      await prisma.sourceCredential.updateMany({
+      // Save credential via upsert
+      await prisma.sourceCredential.upsert({
         where: { sourceId: 'ISMALICIOUS' },
-        data: { isActive: false },
-      });
-
-      // Save new encrypted credential
-      await prisma.sourceCredential.create({
-        data: {
-          sourceId: 'ISMALICIOUS',
-          keyId: cleanKey,
-          encryptedSecret: encrypted,
+        update: {
+          encryptedApiKey: cleanKey,
+          encryptedApiSecret: encrypted,
           iv,
-          authTag: tag,
-          maskedKey: maskCredential(cleanKey),
-          isActive: true,
+          tag,
+          isEnabled: true,
+          lastTestStatus: testResult.success ? 'SUCCESS' : `HTTP_${testResult.statusCode || 401}`,
+          lastTestedAt: new Date(),
+          lastError: testResult.success ? null : testResult.message,
+        },
+        create: {
+          sourceId: 'ISMALICIOUS',
+          encryptedApiKey: cleanKey,
+          encryptedApiSecret: encrypted,
+          iv,
+          tag,
+          isEnabled: true,
+          lastTestStatus: testResult.success ? 'SUCCESS' : `HTTP_${testResult.statusCode || 401}`,
+          lastTestedAt: new Date(),
+          lastError: testResult.success ? null : testResult.message,
         },
       });
 
@@ -142,10 +151,10 @@ export async function POST(req: NextRequest) {
       await prisma.intelligenceSource.upsert({
         where: { sourceId: 'ISMALICIOUS' },
         update: {
-          isActive: true,
+          isActive: testResult.success,
           lastCheckedAt: new Date(),
-          lastSuccessfulSyncAt: new Date(),
-          lastError: null,
+          lastSuccessfulSyncAt: testResult.success ? new Date() : undefined,
+          lastError: testResult.success ? null : testResult.message,
         },
         create: {
           sourceId: 'ISMALICIOUS',
@@ -153,16 +162,19 @@ export async function POST(req: NextRequest) {
           sourceType: 'API',
           sourceLineage: 'DERIVED_OR_MIRRORED',
           baseUrl: 'https://api.ismalicious.com',
-          isActive: true,
+          isActive: testResult.success,
           lastCheckedAt: new Date(),
-          lastSuccessfulSyncAt: new Date(),
+          lastSuccessfulSyncAt: testResult.success ? new Date() : undefined,
         },
       });
 
       return NextResponse.json({
-        success: true,
-        message: 'isMalicious credentials encrypted and saved successfully.',
+        success: testResult.success,
+        message: testResult.success
+          ? 'isMalicious credentials encrypted and verified successfully.'
+          : `Credentials saved, but verification failed: ${testResult.message}`,
         maskedKey: maskCredential(cleanKey),
+        statusCode: testResult.statusCode,
       });
     }
 
