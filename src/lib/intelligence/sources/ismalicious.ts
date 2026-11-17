@@ -234,3 +234,4 @@ async function incrementIsMaliciousUsage(): Promise<void> {
     // Non-fatal telemetry update
   }
 }
+

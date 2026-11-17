@@ -148,6 +148,11 @@ export async function getCurrentUser(): Promise<AuthSessionUser | null> {
 }
 
 /**
+ * Alias for getCurrentUser for session retrieval.
+ */
+export const getAuthSession = getCurrentUser;
+
+/**
  * Server-side RBAC guard. Ensures caller is authenticated and possesses at least required role.
  */
 export async function requireAuth(minimumRole?: UserRole): Promise<AuthSessionUser> {
