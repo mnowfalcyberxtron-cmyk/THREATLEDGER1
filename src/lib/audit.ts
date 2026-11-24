@@ -19,9 +19,25 @@ export interface AuditLogParams {
  */
 export async function recordAuditLog(params: AuditLogParams): Promise<void> {
   try {
+    let resolvedActorProfileId: string | null = null;
+    if (params.actorId) {
+      const profile = await prisma.userProfile.findFirst({
+        where: {
+          OR: [
+            { id: params.actorId },
+            { userId: params.actorId },
+          ],
+        },
+        select: { id: true },
+      });
+      if (profile) {
+        resolvedActorProfileId = profile.id;
+      }
+    }
+
     await prisma.auditLog.create({
       data: {
-        actorId: params.actorId,
+        actorId: resolvedActorProfileId,
         actorName: params.actorName,
         actorEmail: params.actorEmail,
         action: params.action,

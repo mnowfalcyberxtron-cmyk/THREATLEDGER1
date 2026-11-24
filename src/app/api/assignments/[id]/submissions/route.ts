@@ -97,7 +97,7 @@ export async function POST(
 
     const result = await executeReportSubmission({
       assignmentId,
-      callerId: caller.id,
+      callerId: caller.profileId || caller.id,
       callerRole: caller.role,
       callerName: caller.fullName,
       callerEmail: caller.email,

@@ -72,8 +72,23 @@ export async function executeReportSubmission(params: SubmitReportParams) {
     throw new Error('Assignment not found');
   }
 
+  // Resolve caller UserProfile id
+  let effectiveCallerProfileId = callerId;
+  const callerProfile = await prisma.userProfile.findFirst({
+    where: {
+      OR: [{ id: callerId }, { userId: callerId }],
+    },
+    select: { id: true, role: true },
+  });
+  if (callerProfile) {
+    effectiveCallerProfileId = callerProfile.id;
+  }
+
   // 2. Validate user authority
-  const isAnalyst = assignment.primaryAnalystId === callerId;
+  const isAnalyst =
+    assignment.primaryAnalystId === effectiveCallerProfileId ||
+    assignment.primaryAnalystId === callerId ||
+    assignment.primaryAnalyst?.userId === callerId;
   const isAdmin = callerRole === UserRole.ADMIN || callerRole === UserRole.SUPER_ADMIN;
 
   if (!isAnalyst && !isAdmin) {
@@ -183,7 +198,7 @@ export async function executeReportSubmission(params: SubmitReportParams) {
     data: {
       assignmentId,
       versionNumber: nextVersionNumber,
-      submittedById: callerId,
+      submittedById: effectiveCallerProfileId,
       senderEmail: gmailConfig?.senderEmail || 'threatledger.notifications@gmail.com',
       recipientEmail,
       recipientOverrideActive: isOverrideActive,
