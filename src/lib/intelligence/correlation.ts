@@ -182,7 +182,6 @@ export async function linkGroupObservation({
     where: {
       groupId: canonicalGroupId,
       sourceId,
-      externalRecordId: externalId,
     },
   });
 
@@ -191,6 +190,7 @@ export async function linkGroupObservation({
       where: { id: existing.id },
       data: {
         sourceGroupName: observedName,
+        externalRecordId: externalId,
         firstClaimAt: firstClaimAt ?? undefined,
         observedAt: new Date(),
         rawPayload: rawPayload ?? undefined,

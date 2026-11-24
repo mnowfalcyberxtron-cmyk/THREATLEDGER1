@@ -109,6 +109,20 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
           },
         });
 
+        // Link RANSOMWARE_LIVE source observation
+        await prisma.groupSourceObservation.create({
+          data: {
+            sourceId: 'RANSOMWARE_LIVE',
+            groupId: createdGroup.id,
+            sourceGroupName: raw.name,
+            externalRecordId: raw.normalizedName,
+            semantic: raw.firstSeenSourceAt ? 'FIRST_CLAIM' : 'THREATLEDGER_OBSERVED',
+            firstClaimAt: raw.firstSeenSourceAt ? new Date(raw.firstSeenSourceAt) : undefined,
+            sourceAddedAt: raw.sourceAddedAt ? new Date(raw.sourceAddedAt) : undefined,
+            observedAt: new Date(),
+          },
+        });
+
         // Record discovery event
         await prisma.groupDiscoveryEvent.create({
           data: {
@@ -147,6 +161,37 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
           where: { id: existing.id },
           data: updateData,
         });
+
+        // Ensure RANSOMWARE_LIVE source observation
+        const existingObs = await prisma.groupSourceObservation.findFirst({
+          where: { groupId: existing.id, sourceId: 'RANSOMWARE_LIVE' },
+        });
+        if (existingObs) {
+          await prisma.groupSourceObservation.update({
+            where: { id: existingObs.id },
+            data: {
+              sourceGroupName: raw.name,
+              externalRecordId: raw.normalizedName,
+              firstClaimAt: raw.firstSeenSourceAt ? new Date(raw.firstSeenSourceAt) : undefined,
+              sourceAddedAt: raw.sourceAddedAt ? new Date(raw.sourceAddedAt) : undefined,
+              observedAt: new Date(),
+            },
+          });
+        } else {
+          await prisma.groupSourceObservation.create({
+            data: {
+              sourceId: 'RANSOMWARE_LIVE',
+              groupId: existing.id,
+              sourceGroupName: raw.name,
+              externalRecordId: raw.normalizedName,
+              semantic: raw.firstSeenSourceAt ? 'FIRST_CLAIM' : 'THREATLEDGER_OBSERVED',
+              firstClaimAt: raw.firstSeenSourceAt ? new Date(raw.firstSeenSourceAt) : undefined,
+              sourceAddedAt: raw.sourceAddedAt ? new Date(raw.sourceAddedAt) : undefined,
+              observedAt: new Date(),
+            },
+          });
+        }
+
         recordsUpdated++;
       }
     }
@@ -199,6 +244,27 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
         recordsUpdated,
         newGroupsFound,
         completedAt: new Date(),
+      },
+    });
+
+    // Update RANSOMWARE_LIVE IntelligenceSource record
+    await prisma.intelligenceSource.upsert({
+      where: { id: 'RANSOMWARE_LIVE' },
+      update: {
+        lastSyncAt: new Date(),
+        lastSyncStatus: SyncStatus.SUCCESS,
+        lastError: null,
+        recordsTotal: groups.length,
+      },
+      create: {
+        id: 'RANSOMWARE_LIVE',
+        name: 'Ransomware.live API PRO',
+        sourceType: 'LIVE_PRIMARY',
+        lineage: 'PRIMARY_INDEPENDENT',
+        isEnabled: true,
+        lastSyncAt: new Date(),
+        lastSyncStatus: SyncStatus.SUCCESS,
+        recordsTotal: groups.length,
       },
     });
 

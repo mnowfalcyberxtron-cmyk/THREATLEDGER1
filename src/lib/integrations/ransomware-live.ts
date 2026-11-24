@@ -171,7 +171,7 @@ export async function fetchGroupsInventory(): Promise<{ groups: NormalizedGroup[
         profileUrl: g.profile_url || undefined,
         firstSeenSourceAt: g.first_seen || g.created_at || undefined,
         sourceAddedAt: g.added_at || undefined,
-        victimCount: Number(g.victims_count || g.victim_count || 0),
+        victimCount: Number(g.victims ?? g.victims_count ?? g.victim_count ?? 0),
         aliases: Array.isArray(g.aliases) ? g.aliases : [],
       };
     });

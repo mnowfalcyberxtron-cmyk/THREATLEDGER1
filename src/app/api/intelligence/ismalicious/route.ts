@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
           const newGroup = await prisma.ransomwareGroup.create({
             data: {
               name: group.name,
-              normalizedName: group.name.toLowerCase().trim(),
+              normalizedName: group.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
               source: 'ISMALICIOUS',
               discoveryStatus: DiscoveryStatus.NEWLY_LISTED,
               verificationStatus: VerificationStatus.UNVERIFIED,
