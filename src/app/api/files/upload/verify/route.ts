@@ -11,7 +11,7 @@ const verifySchema = z.object({
   assignmentId: z.string().min(1, 'Assignment ID required'),
   objectKey: z.string().min(1, 'Object key required'),
   filename: z.string().min(1, 'Filename required'),
-  fileSize: z.number().positive(),
+  fileSize: z.number().min(0),
   mimeType: z.string().min(1),
   sha256: z.string().optional(),
   fileCategory: z.enum(['REPORT', 'EVIDENCE']),

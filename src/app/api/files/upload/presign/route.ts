@@ -20,7 +20,7 @@ const PERMITTED_EVIDENCE_EXTENSIONS = [
 const presignSchema = z.object({
   assignmentId: z.string().min(1, 'Assignment ID required'),
   filename: z.string().min(1, 'Filename required'),
-  fileSize: z.number().positive('File size must be positive'),
+  fileSize: z.number().min(0, 'File size cannot be negative'),
   mimeType: z.string().min(1, 'MIME type required'),
   fileCategory: z.enum(['REPORT', 'EVIDENCE']),
   evidenceCategory: z.string().optional(),

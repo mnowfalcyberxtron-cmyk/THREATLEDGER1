@@ -66,7 +66,7 @@ const submitSchema = z.object({
   stagedFiles: z.array(
     z.object({
       filename: z.string().min(1),
-      fileSize: z.number().positive(),
+      fileSize: z.number().min(0, 'File size cannot be negative'),
       mimeType: z.string().min(1),
       sha256: z.string().min(1),
       storagePath: z.string().min(1),
