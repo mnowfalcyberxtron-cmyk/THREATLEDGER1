@@ -40,7 +40,7 @@ export default function AnalystTaskWorkbench() {
   const [assignment, setAssignment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'CHECKLIST' | 'REPORTS' | 'EVIDENCE' | 'NOTES'>('CHECKLIST');
+  const [activeTab, setActiveTab] = useState<'REPORTS' | 'EVIDENCE' | 'NOTES'>('REPORTS');
 
   // Notes state
   const [newNoteContent, setNewNoteContent] = useState('');
@@ -640,18 +640,6 @@ export default function AnalystTaskWorkbench() {
       {/* Workbench Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
         <button
-          onClick={() => setActiveTab('CHECKLIST')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-2 ${
-            activeTab === 'CHECKLIST'
-              ? 'bg-emerald-500 text-slate-950'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900'
-          }`}
-        >
-          <CheckSquare className="w-4 h-4" />
-          <span>Research Checklist ({completedChecklistCount}/15)</span>
-        </button>
-
-        <button
           onClick={() => setActiveTab('REPORTS')}
           className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-2 ${
             activeTab === 'REPORTS'
@@ -688,102 +676,7 @@ export default function AnalystTaskWorkbench() {
         </button>
       </div>
 
-      {/* Tab 1: Standardized 15-Point Research Checklist (Section 26) */}
-      {activeTab === 'CHECKLIST' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                  <CheckSquare className="w-4 h-4 text-emerald-400" />
-                  Standardized 15-Point Research Checklist
-                </h2>
-                <span className="text-[11px] text-slate-500">
-                  Section 26 CTI Quality Control Standard
-                </span>
-              </div>
-              <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-slate-900 border border-slate-800 text-emerald-400">
-                {completedChecklistCount} / 15
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {assignment.checklistItems.map((item: any) => (
-                <div
-                  key={item.id}
-                  className="p-3 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex items-start justify-between gap-3 text-xs"
-                >
-                  <div className="space-y-0.5">
-                    <span className="font-semibold text-white block">{item.title}</span>
-                    {item.notApplicableReason && (
-                      <span className="text-[10px] text-amber-400 block italic">
-                        Reason: {item.notApplicableReason}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={() => handleUpdateChecklist(item.id, 'COMPLETED')}
-                      className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors ${
-                        item.status === 'COMPLETED'
-                          ? 'bg-emerald-500 text-slate-950'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Done
-                    </button>
-                    <button
-                      onClick={() => handleUpdateChecklist(item.id, 'IN_PROGRESS')}
-                      className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors ${
-                        item.status === 'IN_PROGRESS'
-                          ? 'bg-indigo-500 text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Active
-                    </button>
-                    <button
-                      onClick={() => {
-                        const reason = prompt('Mandatory explanation why this item is Not Applicable:');
-                        if (reason) {
-                          handleUpdateChecklist(item.id, 'NOT_APPLICABLE', reason);
-                        }
-                      }}
-                      className={`px-2.5 py-1 rounded text-[10px] font-bold transition-colors ${
-                        item.status === 'NOT_APPLICABLE'
-                          ? 'bg-amber-600 text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      N/A
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 p-5 rounded-xl bg-[#0a101f] border border-slate-800 space-y-4 text-xs">
-            <h3 className="font-bold text-white text-sm">Quality Assurance Notes</h3>
-            <p className="text-slate-400 leading-relaxed">
-              Every checklist item represents a verification stage required by Section 26. Items marked N/A require documented operational justification for audit defense.
-            </p>
-            <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 space-y-2">
-              <div className="flex items-center justify-between font-semibold">
-                <span>Completed / NA:</span>
-                <span className="text-emerald-400">{completedChecklistCount}</span>
-              </div>
-              <div className="flex items-center justify-between font-semibold">
-                <span>Remaining:</span>
-                <span className="text-amber-400">{15 - completedChecklistCount}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: Research Reports Deliverables & Gmail Document Archive */}
+      {/* Tab 1: Research Reports Deliverables & Gmail Document Archive */}
       {activeTab === 'REPORTS' && (
         <div className="space-y-6">
           {/* Destination & Recipient Verification Banner */}

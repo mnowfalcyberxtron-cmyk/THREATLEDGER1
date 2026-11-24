@@ -38,7 +38,28 @@ export async function GET(req: NextRequest) {
     }
 
     if (discoveryStatus) where.discoveryStatus = discoveryStatus;
-    if (discoveryMonth) where.discoveryMonth = discoveryMonth;
+    if (discoveryMonth) {
+      const [yearStr, monthStr] = discoveryMonth.split('-');
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      if (year && month) {
+        // Asia/Kolkata boundary converted to UTC
+        const startUTC = new Date(Date.UTC(year, month - 1, 1, -5, -30));
+        const endUTC = new Date(Date.UTC(year, month, 1, -5, -30));
+        where.AND = [
+          ...(where.AND || []),
+          {
+            OR: [
+              { discoveryMonth },
+              { firstObservedAt: { gte: startUTC, lt: endUTC } },
+              { threatLedgerDetectedAt: { gte: startUTC, lt: endUTC } },
+            ],
+          },
+        ];
+      } else {
+        where.discoveryMonth = discoveryMonth;
+      }
+    }
     if (source) where.source = source;
 
     const [groups, total] = await Promise.all([

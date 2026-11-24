@@ -5,7 +5,8 @@ import { ChecklistStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
 
 const updateItemSchema = z.object({
-  checklistItemId: z.string().min(1, 'Item ID required'),
+  checklistItemId: z.string().optional(),
+  itemId: z.string().optional(),
   status: z.enum(['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'NOT_APPLICABLE']),
   notApplicableReason: z.string().optional(),
 });
@@ -27,7 +28,12 @@ export async function PATCH(
       );
     }
 
-    const { checklistItemId, status, notApplicableReason } = parsed.data;
+    const { status, notApplicableReason } = parsed.data;
+    const checklistItemId = parsed.data.checklistItemId || parsed.data.itemId;
+
+    if (!checklistItemId) {
+      return NextResponse.json({ error: 'Item ID required' }, { status: 400 });
+    }
 
     if (status === 'NOT_APPLICABLE' && (!notApplicableReason || notApplicableReason.trim().length === 0)) {
       return NextResponse.json(

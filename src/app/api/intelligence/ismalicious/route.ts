@@ -211,14 +211,17 @@ export async function POST(req: NextRequest) {
 
         if (!canonicalGroupId) {
           // Create new group detected by ThreatLedger via isMalicious
+          const now = new Date();
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
           const newGroup = await prisma.ransomwareGroup.create({
             data: {
               name: group.name,
               normalizedName: group.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
               source: 'ISMALICIOUS',
               discoveryStatus: DiscoveryStatus.NEWLY_LISTED,
+              discoveryMonth: currentMonth,
               verificationStatus: VerificationStatus.UNVERIFIED,
-              firstObservedAt: new Date(),
+              firstObservedAt: now,
               firstClaimAt: groupFirstClaimDate,
               firstClaimSource: group.firstClaimAt ? 'isMalicious' : null,
               lastSeenAt: groupLastClaimDate,
