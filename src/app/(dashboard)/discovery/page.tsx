@@ -76,6 +76,7 @@ export default function ThreatActorDiscoveryPage() {
   const [metrics, setMetrics] = useState<SummaryMetrics | null>(null);
   const [sourcesPanel, setSourcesPanel] = useState<SourceStatus[]>([]);
   const [records, setRecords] = useState<ThreatActorRecord[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +101,7 @@ export default function ThreatActorDiscoveryPage() {
         dateType,
         verificationStatus: verificationFilter,
         search: searchQuery,
+        limit: '5000',
       });
 
       const res = await fetch(`/api/intelligence/discovery?${params.toString()}`);
@@ -110,6 +112,7 @@ export default function ThreatActorDiscoveryPage() {
       setMetrics(data.metrics);
       setSourcesPanel(data.sourcesPanel || []);
       setRecords(data.discoveryData?.records || []);
+      setTotalCount(data.discoveryData?.total ?? (data.discoveryData?.records?.length || 0));
     } catch (err: any) {
       setError(err.message || 'Failed to load threat actor discovery data');
     } finally {
@@ -224,8 +227,8 @@ export default function ThreatActorDiscoveryPage() {
         </div>
       </div>
 
-      {/* 6 Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* 5 Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {/* Card 1: First Public Claim This Month */}
         <div className="p-4 rounded-xl bg-[#0c1324] border border-emerald-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400">
@@ -254,21 +257,7 @@ export default function ThreatActorDiscoveryPage() {
           </div>
         </div>
 
-        {/* Card 3: Pending Verification */}
-        <div className="p-4 rounded-xl bg-[#0c1324] border border-amber-500/30 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Pending Review</span>
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="mt-2">
-            <span className="text-2xl font-bold text-amber-400">
-              {metrics?.pendingVerification ?? '—'}
-            </span>
-            <div className="text-[10px] text-slate-500 mt-0.5">Awaiting analyst</div>
-          </div>
-        </div>
-
-        {/* Card 4: Existing Groups Updated */}
+        {/* Card 3: Existing Groups Updated */}
         <div className="p-4 rounded-xl bg-[#0c1324] border border-indigo-500/30 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Groups Updated</span>
@@ -427,7 +416,8 @@ export default function ThreatActorDiscoveryPage() {
         </div>
 
         <div className="text-slate-400 text-[11px]">
-          Showing <span className="font-semibold text-emerald-400">{records.length}</span> threat actors
+          Showing <span className="font-semibold text-emerald-400">{records.length}</span>
+          {totalCount > records.length ? ` of ${totalCount}` : ''} threat actors
         </div>
       </div>
 

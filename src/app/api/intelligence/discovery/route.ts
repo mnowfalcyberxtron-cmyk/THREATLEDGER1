@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const sortBy = (searchParams.get('sortBy') as any) || 'firstObservedAt';
     const sortOrder = (searchParams.get('sortOrder') as any) || 'desc';
     const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    const limit = parseInt(searchParams.get('limit') || '5000', 10);
 
     const [metrics, sourcesPanel, discoveryData] = await Promise.all([
       getDiscoverySummaryMetrics(year, month),
