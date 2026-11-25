@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/auth';
 import { recordAuditLog } from '@/lib/audit';
-import { dispatchTaskAssignedNotification } from '@/lib/email/mailer';
-import { validateWorkingDayDeadline, parseISTCalendarDateToEndOfDay } from '@/lib/datetime/working-days';
+import { dispatchTaskAssignedNotification, dispatchSelfAssignedReviewerNotification } from '@/lib/email/mailer';
+import {
+  validateWorkingDayDeadline,
+  parseISTCalendarDateToEndOfDay,
+  addWorkingDays,
+  getISTCalendarParts,
+} from '@/lib/datetime/working-days';
 import { rescheduleAssignmentReminders } from '@/lib/services/reminder-engine';
 import { AssignmentPriority, AssignmentStatus, ChecklistStatus, UserRole } from '@prisma/client';
 import { z } from 'zod';
@@ -124,7 +129,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const caller = await requireAuth(UserRole.ADMIN);
+    const caller = await requireAuth(UserRole.ANALYST);
     const body = await req.json();
     const parsed = createAssignmentSchema.safeParse(body);
 
@@ -183,8 +188,36 @@ export async function POST(req: NextRequest) {
     }
 
     const callerProfileId = await resolveProfileId(caller.profileId || caller.id);
-    const resolvedAnalystId = await resolveProfileId(primaryAnalystId);
-    const resolvedReviewerId = reviewerId ? await resolveProfileId(reviewerId) : callerProfileId;
+    const isAnalystCaller = caller.role === UserRole.ANALYST;
+
+    // Analysts can only self-assign and receive an automatic 2-working-day deadline
+    const resolvedAnalystId = isAnalystCaller
+      ? callerProfileId
+      : await resolveProfileId(primaryAnalystId);
+
+    let resolvedReviewerId: string;
+    if (reviewerId) {
+      resolvedReviewerId = await resolveProfileId(reviewerId);
+    } else if (isAnalystCaller) {
+      const defaultAdmin = await prisma.userProfile.findFirst({
+        where: {
+          role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] },
+          id: { not: callerProfileId },
+          user: { status: 'ACTIVE' },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      resolvedReviewerId = defaultAdmin?.id || callerProfileId;
+    } else {
+      resolvedReviewerId = callerProfileId;
+    }
+
+    const autoTwoDayDeadlineStr = isAnalystCaller
+      ? getISTCalendarParts(addWorkingDays(new Date(), 2)).dateString
+      : null;
+
+    const isSelfAssigned = isAnalystCaller || resolvedAnalystId === callerProfileId;
     const isBulk = groupIds.length > 1;
 
     let batchId: string | undefined = undefined;
@@ -205,7 +238,7 @@ export async function POST(req: NextRequest) {
       const taskTitle = isBulk ? `${title} — ${group?.name || 'Group'}` : title;
 
       // Determine final deadline for this specific assignment
-      const specificDueDateStr = individualDeadlines?.[groupId] || dueDate;
+      const specificDueDateStr = autoTwoDayDeadlineStr || individualDeadlines?.[groupId] || dueDate;
       let finalDueDate: Date | undefined = undefined;
       if (specificDueDateStr) {
         // Parse to end of calendar day in Asia/Kolkata (11:59:59.999 PM IST)
@@ -266,21 +299,26 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Create in-platform notification for assigned analyst
-      await prisma.notification.create({
-        data: {
-          userId: primaryAnalystId,
-          title: `New Research Assignment: ${assignment.group.name}`,
-          message: `You have been assigned research on ${assignment.group.name} by ${caller.fullName}. Priority: ${priority}.`,
-          type: 'ASSIGNMENT',
-          link: `/my-tasks/${assignment.id}`,
-        },
-      });
+      // Create in-platform notification & email dispatch (awaited for serverless reliability)
+      if (isSelfAssigned) {
+        await dispatchSelfAssignedReviewerNotification(assignment.id).catch((e) =>
+          console.error('[Self-Assign Reviewer Email Error]:', e)
+        );
+      } else {
+        await prisma.notification.create({
+          data: {
+            userId: resolvedAnalystId,
+            title: `New Research Assignment: ${assignment.group.name}`,
+            message: `You have been assigned research on ${assignment.group.name} by ${caller.fullName}. Priority: ${priority}.`,
+            type: 'ASSIGNMENT',
+            link: `/my-tasks/${assignment.id}`,
+          },
+        });
 
-      // Dispatch email notification to assigned analyst (awaited for serverless reliability)
-      await dispatchTaskAssignedNotification(assignment.id).catch((e) =>
-        console.error('[Assignment Email Dispatch Error]:', e)
-      );
+        await dispatchTaskAssignedNotification(assignment.id).catch((e) =>
+          console.error('[Assignment Email Dispatch Error]:', e)
+        );
+      }
 
       createdAssignments.push(assignment);
     }

@@ -18,7 +18,11 @@ import Link from 'next/link';
 import { formatIST } from '@/lib/utils';
 import { useSearchParams } from 'next/navigation';
 import { WeekdayDatePicker } from '@/components/ui/WeekdayDatePicker';
-import { getWorkingDayDeadlineStatus } from '@/lib/datetime/working-days';
+import {
+  getWorkingDayDeadlineStatus,
+  addWorkingDays,
+  getISTCalendarParts,
+} from '@/lib/datetime/working-days';
 
 interface AssignmentRow {
   id: string;
@@ -47,6 +51,7 @@ export default function AssignmentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [availableGroups, setAvailableGroups] = useState<any[]>([]);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedAnalystId, setSelectedAnalystId] = useState('');
   const [selectedReviewerId, setSelectedReviewerId] = useState('');
@@ -81,14 +86,29 @@ export default function AssignmentsPage() {
 
   async function loadModalData() {
     try {
-      const [groupsRes, teamRes] = await Promise.all([
-        fetch('/api/groups?limit=100'),
+      const [groupsRes, teamRes, meRes] = await Promise.all([
+        fetch('/api/groups?limit=500'),
         fetch('/api/team/members'),
+        fetch('/api/auth/me'),
       ]);
       const groupsData = await groupsRes.json();
       const teamData = await teamRes.json();
+      const meData = meRes.ok ? await meRes.json() : null;
+      const members = teamData.members || [];
       setAvailableGroups(groupsData.groups || []);
-      setTeamMembers(teamData.members || []);
+      setTeamMembers(members);
+
+      if (meData?.user) {
+        setCurrentUser(meData.user);
+        if (meData.user.role === 'ANALYST') {
+          setSelectedAnalystId(meData.user.profileId || meData.user.id);
+          const defaultRev = members.find((m: any) => m.role === 'SUPER_ADMIN' || m.role === 'ADMIN');
+          if (defaultRev) {
+            setSelectedReviewerId(defaultRev.profileId || defaultRev.id);
+          }
+          setDueDate(getISTCalendarParts(addWorkingDays(new Date(), 2)).dateString);
+        }
+      }
 
       if (preselectedGroupId) {
         setSelectedGroupIds([preselectedGroupId]);
@@ -394,12 +414,15 @@ export default function AssignmentsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Primary Analyst *</label>
+                  <label className="block font-semibold text-slate-300 mb-1">
+                    Primary Analyst * {currentUser?.role === 'ANALYST' && <span className="text-emerald-400">(Self-Assigned)</span>}
+                  </label>
                   <select
                     required
+                    disabled={currentUser?.role === 'ANALYST'}
                     value={selectedAnalystId}
                     onChange={(e) => setSelectedAnalystId(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none disabled:opacity-75"
                   >
                     <option value="">Select Analyst...</option>
                     {teamMembers.map((m) => (
@@ -417,7 +440,7 @@ export default function AssignmentsPage() {
                     onChange={(e) => setSelectedReviewerId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-white focus:outline-none"
                   >
-                    <option value="">Default (Assigner)</option>
+                    <option value="">{currentUser?.role === 'ANALYST' ? 'Default (Admin / Reviewer)' : 'Default (Assigner)'}</option>
                     {teamMembers.filter((m) => m.role === 'ADMIN' || m.role === 'SUPER_ADMIN').map((m) => (
                       <option key={m.profileId || m.id} value={m.profileId || m.id}>
                         {m.fullName} ({m.role}) — {m.email}
@@ -491,16 +514,30 @@ export default function AssignmentsPage() {
                 </div>
 
                 <div>
-                  <WeekdayDatePicker
-                    value={dueDate}
-                    onChange={setDueDate}
-                    label="Common Assignment Deadline"
-                  />
+                  {currentUser?.role === 'ANALYST' ? (
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1">
+                        Automatic Deadline (2 Working Days)
+                      </label>
+                      <div className="px-3 py-2 bg-emerald-950/30 border border-emerald-500/30 rounded-lg text-emerald-300 font-mono text-xs">
+                        {dueDate || getISTCalendarParts(addWorkingDays(new Date(), 2)).dateString} (11:59 PM IST)
+                      </div>
+                      <span className="text-[10px] text-slate-500 block mt-1">
+                        Automatically set to +2 working days (Mon–Fri). Reviewer will be notified via email.
+                      </span>
+                    </div>
+                  ) : (
+                    <WeekdayDatePicker
+                      value={dueDate}
+                      onChange={setDueDate}
+                      label="Common Assignment Deadline"
+                    />
+                  )}
                 </div>
               </div>
 
               {/* Bulk Allocation: Optional Separate Deadlines */}
-              {selectedGroupIds.length > 1 && (
+              {selectedGroupIds.length > 1 && currentUser?.role !== 'ANALYST' && (
                 <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>

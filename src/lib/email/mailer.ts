@@ -289,6 +289,70 @@ export async function dispatchTaskAssignedNotification(assignmentId: string) {
 }
 
 /**
+ * Notify the assigned reviewer when an analyst self-assigns a ransomware group.
+ */
+export async function dispatchSelfAssignedReviewerNotification(assignmentId: string) {
+  try {
+    const assignment = await prisma.assignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        group: true,
+        primaryAnalyst: { include: { user: true } },
+        reviewer: { include: { user: true } },
+      },
+    });
+
+    if (!assignment || !assignment.reviewer?.user?.email) return;
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const taskUrl = `${appUrl}/my-tasks/${assignment.id}`;
+    const dueLabel = assignment.dueDate
+      ? new Intl.DateTimeFormat('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        }).format(assignment.dueDate) + ' IST'
+      : '2 Working Days';
+
+    const subject = `[ThreatLedger] Analyst Self-Assigned: ${assignment.group.name} (${assignment.primaryAnalyst.fullName})`;
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #060a12; color: #f1f5f9; padding: 28px; border-radius: 12px; border: 1px solid #1e293b;">
+        <h2 style="color: #10b981; margin-top: 0;">Analyst Self-Assignment Notice</h2>
+        <p><strong>${assignment.primaryAnalyst.fullName}</strong> (${assignment.primaryAnalyst.user?.email || ''}) has self-assigned a ransomware research task:</p>
+        <div style="background: #0f172a; padding: 16px; border-radius: 8px; border: 1px solid #334155; margin: 16px 0;">
+          <p style="margin: 4px 0;"><strong>Target Group:</strong> ${assignment.group.name}</p>
+          <p style="margin: 4px 0;"><strong>Assignment Title:</strong> ${assignment.title}</p>
+          <p style="margin: 4px 0;"><strong>Priority:</strong> ${assignment.priority}</p>
+          <p style="margin: 4px 0;"><strong>Automatic Deadline:</strong> ${dueLabel}</p>
+          <p style="margin: 4px 0;"><strong>Assigned Reviewer:</strong> ${assignment.reviewer.fullName}</p>
+        </div>
+        <p><a href="${taskUrl}" style="display: inline-block; padding: 10px 18px; background: #10b981; color: #020617; font-weight: bold; text-decoration: none; border-radius: 6px;">View Assignment</a></p>
+      </div>
+    `;
+
+    await prisma.notification.create({
+      data: {
+        userId: assignment.reviewer.id,
+        title: `Analyst Self-Assigned: ${assignment.group.name}`,
+        message: `${assignment.primaryAnalyst.fullName} self-assigned ${assignment.group.name} (Due: ${dueLabel}).`,
+        type: 'ASSIGNMENT',
+        link: `/my-tasks/${assignment.id}`,
+      },
+    });
+
+    await sendEmail({
+      to: assignment.reviewer.user.email,
+      subject,
+      html,
+      templateType: 'ANALYST_SELF_ASSIGNED',
+      idempotencyKey: `self-assigned-${assignment.id}`,
+    });
+  } catch (error) {
+    console.error('[Dispatch Self-Assigned Reviewer Error]:', error);
+  }
+}
+
+/**
  * Section 31 Deliverable Dispatch:
  * On report submission, fetch the binary file from Cloudflare R2 and attach it
  * directly to the email sent to the reviewer.
