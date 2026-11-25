@@ -152,12 +152,22 @@ export async function POST(
       return res;
     });
 
-    // Notify analyst of review decision
-    if (action === 'APPROVE' || action === 'REQUEST_CHANGES' || action === 'REJECT') {
-      dispatchReviewVerdictNotification(
+    // Notify analyst of review decision (awaited so Vercel serverless completes SMTP dispatch)
+    if (action === 'APPROVE' || action === 'REQUEST_CHANGES' || action === 'REJECT' || action === 'REOPEN') {
+      const verdict: 'APPROVED' | 'CHANGES_REQUESTED' | 'REJECTED' =
+        action === 'APPROVE'
+          ? 'APPROVED'
+          : action === 'REQUEST_CHANGES' || action === 'REOPEN'
+          ? 'CHANGES_REQUESTED'
+          : 'REJECTED';
+      const decisionComments =
+        action === 'REOPEN'
+          ? comments || 'Assignment reopened by reviewer for further updates.'
+          : comments;
+      await dispatchReviewVerdictNotification(
         assignmentId,
-        action as 'APPROVED' | 'CHANGES_REQUESTED' | 'REJECTED',
-        comments
+        verdict,
+        decisionComments
       ).catch((e) => console.error('[Review Verdict Mailer Error]:', e));
     }
 

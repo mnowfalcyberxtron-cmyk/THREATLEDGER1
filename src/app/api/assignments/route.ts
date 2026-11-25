@@ -277,8 +277,8 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Dispatch email notification to assigned analyst
-      dispatchTaskAssignedNotification(assignment.id).catch((e) =>
+      // Dispatch email notification to assigned analyst (awaited for serverless reliability)
+      await dispatchTaskAssignedNotification(assignment.id).catch((e) =>
         console.error('[Assignment Email Dispatch Error]:', e)
       );
 

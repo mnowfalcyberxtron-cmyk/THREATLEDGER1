@@ -146,10 +146,10 @@ export async function POST(
       );
     }
 
-    // Dispatch operational notifications & Section 31 email with physical attachment
+    // Dispatch operational notifications & Section 31 email with physical attachment (awaited for serverless)
     if (targetStatus === 'SUBMITTED_FOR_REVIEW') {
       if (!assignment.reportSubmissions || assignment.reportSubmissions.length === 0) {
-        dispatchReportSubmittedNotification(assignmentId).catch((e) =>
+        await dispatchReportSubmittedNotification(assignmentId).catch((e) =>
           console.error('[Background Email Dispatch Error]:', e)
         );
       }
@@ -164,7 +164,7 @@ export async function POST(
           : targetStatus === 'CHANGES_REQUESTED'
           ? 'CHANGES_REQUESTED'
           : 'REJECTED';
-      dispatchReviewVerdictNotification(assignmentId, verdict, reason).catch((e) =>
+      await dispatchReviewVerdictNotification(assignmentId, verdict, reason).catch((e) =>
         console.error('[Background Email Dispatch Error]:', e)
       );
     }

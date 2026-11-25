@@ -108,7 +108,8 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
 
   // 2.5 Dispatch via configured ThreatLedger Gmail sender account if available
   const gmailConfig = await getActiveGmailConfig();
-  if (gmailConfig && gmailConfig.status === 'CONNECTED') {
+  const hasEnvGmail = Boolean(process.env.GMAIL_SENDER_EMAIL && process.env.GMAIL_APP_PASSWORD);
+  if ((gmailConfig && gmailConfig.status === 'CONNECTED') || hasEnvGmail) {
     const gmailRes = await sendReportEmailViaGmail({
       to,
       subject,
