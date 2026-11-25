@@ -2,7 +2,9 @@ import prisma from '@/lib/prisma';
 import { fetchGroupsInventory, fetchRecentVictims } from '@/lib/integrations/ransomware-live';
 import { recordAuditLog } from '@/lib/audit';
 import { ensureIntelligenceSourcesExist } from '@/lib/intelligence/seed-sources';
-import { DiscoveryStatus, GroupSource, SyncStatus } from '@prisma/client';
+import { getIsMaliciousCredentials, fetchIsMaliciousGroups } from '@/lib/intelligence/sources/ismalicious';
+import { correlateGroup, linkGroupObservation } from '@/lib/intelligence/correlation';
+import { DiscoveryStatus, GroupSource, GroupStatus, ObservationSemantic, SyncStatus, VerificationStatus } from '@prisma/client';
 
 export interface SyncResult {
   runId: string;
@@ -234,6 +236,84 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
           },
         });
       }
+    }
+
+    // Also sync isMalicious for new group discovery & first-claim enrichment (non-fatal)
+    try {
+      const imCreds = await getIsMaliciousCredentials();
+      if (imCreds?.apiKey && imCreds?.apiSecret) {
+        const imRes = await fetchIsMaliciousGroups(imCreds.apiKey, imCreds.apiSecret, 500);
+        if (imRes.success && imRes.groups) {
+          for (const g of imRes.groups) {
+            const corr = await correlateGroup(g.name);
+            let groupId = corr.canonicalGroupId;
+            const firstClaimAt = g.firstClaimAt ? new Date(g.firstClaimAt) : null;
+            const lastClaimAt = g.lastClaimAt ? new Date(g.lastClaimAt) : null;
+
+            if (!groupId) {
+              const now = new Date();
+              const created = await prisma.ransomwareGroup.create({
+                data: {
+                  name: g.name,
+                  normalizedName: g.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                  source: GroupSource.ISMALICIOUS,
+                  discoveryStatus: DiscoveryStatus.NEWLY_LISTED,
+                  discoveryMonth: getISTDiscoveryMonth(now),
+                  verificationStatus: VerificationStatus.UNVERIFIED,
+                  firstObservedAt: now,
+                  threatLedgerDetectedAt: now,
+                  firstClaimAt,
+                  firstClaimSource: firstClaimAt ? 'isMalicious' : null,
+                  lastSeenAt: lastClaimAt,
+                  victimCount: g.victimCount || 0,
+                  status: g.activity === 'active' ? GroupStatus.ACTIVE : GroupStatus.INACTIVE,
+                },
+              });
+              groupId = created.id;
+              recordsCreated++;
+              newGroupsFound++;
+            } else if (firstClaimAt) {
+              const existing = await prisma.ransomwareGroup.findUnique({
+                where: { id: groupId },
+                select: { firstClaimAt: true },
+              });
+              if (!existing?.firstClaimAt || firstClaimAt < existing.firstClaimAt) {
+                await prisma.ransomwareGroup.update({
+                  where: { id: groupId },
+                  data: {
+                    firstClaimAt,
+                    firstClaimSource: 'isMalicious',
+                    lastSeenAt: lastClaimAt || undefined,
+                  },
+                });
+              }
+            }
+
+            await linkGroupObservation({
+              sourceId: 'ISMALICIOUS',
+              canonicalGroupId: groupId,
+              externalId: g.name,
+              observedName: g.name,
+              timestampSemantic: firstClaimAt ? ObservationSemantic.FIRST_CLAIM : ObservationSemantic.THREATLEDGER_OBSERVED,
+              firstClaimAt,
+              lastClaimAt,
+              rawPayload: g,
+            });
+          }
+
+          await prisma.intelligenceSource.update({
+            where: { id: 'ISMALICIOUS' },
+            data: {
+              lastSyncAt: new Date(),
+              lastSyncStatus: SyncStatus.SUCCESS,
+              lastError: null,
+              recordsTotal: imRes.groups.length,
+            },
+          });
+        }
+      }
+    } catch (imErr: any) {
+      console.warn('[Sync Engine] Non-fatal isMalicious auto-sync warning:', imErr?.message || imErr);
     }
 
     // Mark sync completed
