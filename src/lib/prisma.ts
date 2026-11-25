@@ -18,8 +18,15 @@ try {
   schema = undefined;
 }
 
-const pool = globalForPrisma.pool ?? new Pool({ connectionString });
-if (process.env.NODE_ENV !== 'production') globalForPrisma.pool = pool;
+const pool =
+  globalForPrisma.pool ??
+  new Pool({
+    connectionString,
+    max: process.env.NODE_ENV === 'production' ? 2 : 10,
+    idleTimeoutMillis: 10000,
+    connectionTimeoutMillis: 10000,
+  });
+globalForPrisma.pool = pool;
 
 const adapter = new PrismaPg(pool, schema ? { schema } : undefined);
 
@@ -30,6 +37,6 @@ export const prisma =
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+globalForPrisma.prisma = prisma;
 
 export default prisma;
