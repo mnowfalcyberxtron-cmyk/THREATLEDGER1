@@ -254,7 +254,7 @@ export async function fetchRecentVictims(): Promise<NormalizedVictim[]> {
   }
 
   try {
-    const res = await fetch(`${BASE_URL}/recentvictims`, {
+    const res = await fetch(`${BASE_URL}/victims/recent`, {
       method: 'GET',
       headers: {
         'X-API-KEY': apiKey,
@@ -267,19 +267,23 @@ export async function fetchRecentVictims(): Promise<NormalizedVictim[]> {
     const data = await res.json();
     const rawVictims: any[] = Array.isArray(data) ? data : data.victims || [];
 
-    return rawVictims.map((v) => ({
-      externalId: v.id || v.victim_id,
-      groupName: v.group_name || v.group || 'Unknown Group',
-      victimName: v.post_title || v.victim || 'Unknown Organization',
-      country: v.country || undefined,
-      countryCode: v.country_code || undefined,
-      sector: v.sector || v.activity || undefined,
-      domain: v.website || v.domain || undefined,
-      discoveredAt: v.discovered || v.published || undefined,
-      attackedAt: v.attack_date || undefined,
-      sourceUrl: v.post_url || undefined,
-      claimType: 'ATTACKER_CLAIM',
-    }));
+    return rawVictims.map((v) => {
+      const countryCode = v.country_code || (v.country && v.country.length === 2 ? v.country.toUpperCase() : undefined);
+      const sector = v.sector || (v.activity && v.activity !== 'Not Found' ? v.activity : undefined);
+      return {
+        externalId: v.id || v.victim_id,
+        groupName: v.group_name || v.group || 'Unknown Group',
+        victimName: v.post_title || v.victim || 'Unknown Organization',
+        country: v.country || undefined,
+        countryCode,
+        sector,
+        domain: v.website || v.domain || undefined,
+        discoveredAt: v.discovered || v.published || undefined,
+        attackedAt: v.attackdate || v.attack_date || undefined,
+        sourceUrl: v.post_url || undefined,
+        claimType: 'ATTACKER_CLAIM',
+      };
+    });
   } catch {
     return MOCK_VICTIMS;
   }
