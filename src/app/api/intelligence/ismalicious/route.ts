@@ -11,6 +11,8 @@ import {
 import { correlateGroup, linkGroupObservation } from '@/lib/intelligence/correlation';
 import { SourceLineage, SyncStatus, VerificationStatus, ObservationSemantic, DiscoveryStatus, GroupStatus } from '@prisma/client';
 
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getCurrentUser();

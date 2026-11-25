@@ -52,7 +52,8 @@ export async function PATCH(
     }
 
     // Ensure only assigned analyst, reviewer, or admin can update checklist
-    if (caller.role === UserRole.ANALYST && item.assignment.primaryAnalystId !== caller.id) {
+    const profileId = caller.profileId || caller.id;
+    if (caller.role === UserRole.ANALYST && item.assignment.primaryAnalystId !== profileId) {
       return NextResponse.json({ error: 'Only the assigned analyst can update checklist progress' }, { status: 403 });
     }
 
@@ -61,7 +62,7 @@ export async function PATCH(
       data: {
         status: status as ChecklistStatus,
         notApplicableReason: status === 'NOT_APPLICABLE' ? notApplicableReason : null,
-        updatedById: caller.id,
+        updatedById: profileId,
       },
     });
 

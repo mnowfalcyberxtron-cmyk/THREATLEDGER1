@@ -52,7 +52,8 @@ export async function POST(
     }
 
     // SECTION 35 & 34: Strict decoupling of submitter and approver
-    if (caller.id === assignment.primaryAnalystId && caller.role !== UserRole.SUPER_ADMIN) {
+    const profileId = caller.profileId || caller.id;
+    if (profileId === assignment.primaryAnalystId && caller.role !== UserRole.SUPER_ADMIN) {
       return NextResponse.json(
         { error: 'Governance violation: Analysts are strictly forbidden from approving their own work.' },
         { status: 403 }

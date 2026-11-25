@@ -42,10 +42,11 @@ export async function GET(
       return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
     }
 
+    const profileId = caller.profileId || caller.id;
     if (
       caller.role === UserRole.ANALYST &&
-      assignment.primaryAnalystId !== caller.id &&
-      assignment.reviewerId !== caller.id
+      assignment.primaryAnalystId !== profileId &&
+      assignment.reviewerId !== profileId
     ) {
       return NextResponse.json({ error: 'Unauthorized to view assignment submissions' }, { status: 403 });
     }

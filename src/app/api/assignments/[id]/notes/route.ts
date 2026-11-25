@@ -50,10 +50,12 @@ export async function POST(
       return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
     }
 
+    const profileId = caller.profileId || caller.id;
+
     const note = await prisma.assignmentNote.create({
       data: {
         assignmentId,
-        authorId: caller.id,
+        authorId: profileId,
         noteType: noteType as NoteType,
         content,
         parentNoteId,
@@ -66,11 +68,11 @@ export async function POST(
     // Notify counterpart if shared note
     if (noteType === 'SHARED') {
       const recipientId =
-        caller.id === assignment.primaryAnalystId
+        profileId === assignment.primaryAnalystId
           ? assignment.reviewerId
           : assignment.primaryAnalystId;
 
-      if (recipientId && recipientId !== caller.id) {
+      if (recipientId && recipientId !== profileId) {
         await prisma.notification.create({
           data: {
             userId: recipientId,

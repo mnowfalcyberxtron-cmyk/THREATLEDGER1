@@ -29,10 +29,11 @@ export async function POST(req: NextRequest) {
     }
 
     // Role check: Only assigned analyst or admin can upload
+    const profileId = caller.profileId || caller.id;
     if (
       caller.role === UserRole.ANALYST &&
-      assignment.primaryAnalystId !== caller.id &&
-      assignment.reviewerId !== caller.id
+      assignment.primaryAnalystId !== profileId &&
+      assignment.reviewerId !== profileId
     ) {
       return NextResponse.json(
         { error: 'Unauthorized to stage uploads for this assignment.' },

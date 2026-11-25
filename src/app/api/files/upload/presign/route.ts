@@ -60,10 +60,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
     }
 
+    const profileId = caller.profileId || caller.id;
     if (
       caller.role === UserRole.ANALYST &&
-      assignment.primaryAnalystId !== caller.id &&
-      assignment.reviewerId !== caller.id
+      assignment.primaryAnalystId !== profileId &&
+      assignment.reviewerId !== profileId
     ) {
       return NextResponse.json({ error: 'Unauthorized to upload files to this assignment' }, { status: 403 });
     }

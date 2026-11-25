@@ -3,6 +3,8 @@ import { requireAuth } from '@/lib/auth';
 import { runGroupInventorySync } from '@/lib/services/sync-engine';
 import { UserRole } from '@prisma/client';
 
+export const maxDuration = 60;
+
 export async function POST() {
   try {
     await requireAuth(UserRole.ADMIN);

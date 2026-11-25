@@ -80,7 +80,8 @@ export async function GET(
     }
 
     // Role check: Admin/Super Admin can view all. Analyst can view if assigned to them or if they are reviewer.
-    if (caller.role === UserRole.ANALYST && assignment.primaryAnalystId !== caller.id && assignment.reviewerId !== caller.id) {
+    const profileId = caller.profileId || caller.id;
+    if (caller.role === UserRole.ANALYST && assignment.primaryAnalystId !== profileId && assignment.reviewerId !== profileId) {
       return NextResponse.json({ error: 'Access restricted to assigned personnel' }, { status: 403 });
     }
 
@@ -123,9 +124,10 @@ export async function PATCH(
     }
 
     // Role permission check for modifying deadline or reassignment (PART 1 - Section 13)
+    const profileId = caller.profileId || caller.id;
     const isAdmin = caller.role === UserRole.ADMIN || caller.role === UserRole.SUPER_ADMIN;
-    const isAssigner = existing.assignerId === caller.id;
-    const isReviewer = existing.reviewerId === caller.id;
+    const isAssigner = existing.assignerId === profileId;
+    const isReviewer = existing.reviewerId === profileId;
 
     const {
       priority,
@@ -210,7 +212,7 @@ export async function PATCH(
             assignmentId: id,
             oldDueDate: existing.dueDate,
             newDueDate: finalDueDate,
-            changedById: caller.id,
+            changedById: profileId,
             reason: deadlineReason || 'Deadline updated in assignment workbench',
           },
         });

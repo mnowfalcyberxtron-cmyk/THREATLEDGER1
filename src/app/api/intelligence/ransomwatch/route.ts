@@ -7,6 +7,8 @@ import {
   RANSOMWATCH_POSTS_URL,
 } from '@/lib/intelligence/sources/ransomwatch';
 
+export const maxDuration = 60;
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getCurrentUser();

@@ -3,7 +3,9 @@ import path from 'path';
 import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
-const PRIVATE_STAGING_DIR = path.resolve('.private_staging');
+const PRIVATE_STAGING_DIR = process.env.VERCEL
+  ? path.join('/tmp', '.private_staging')
+  : path.resolve('.private_staging');
 const SUPABASE_TEMP_BUCKET = process.env.SUPABASE_TEMP_BUCKET || 'threatledger-temp-staging';
 
 // Permitted extensions and content-types

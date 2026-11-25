@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
           assignmentId,
           oldDueDate: assignment.dueDate,
           newDueDate: finalDueDate,
-          changedById: caller.id,
+          changedById: caller.profileId || caller.id,
           reason: `[Legacy Weekend Migration] ${reason}`,
         },
       });

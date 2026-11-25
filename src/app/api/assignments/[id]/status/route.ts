@@ -60,8 +60,9 @@ export async function POST(
       return NextResponse.json({ error: 'Assignment not found' }, { status: 404 });
     }
 
-    const isPrimaryAnalyst = assignment.primaryAnalystId === caller.id;
-    const isReviewer = assignment.reviewerId === caller.id;
+    const profileId = caller.profileId || caller.id;
+    const isPrimaryAnalyst = assignment.primaryAnalystId === profileId;
+    const isReviewer = assignment.reviewerId === profileId;
     const isAdmin = caller.role === UserRole.ADMIN || caller.role === UserRole.SUPER_ADMIN;
 
     // SECTION 35 & 34 STRICT ENFORCEMENT:

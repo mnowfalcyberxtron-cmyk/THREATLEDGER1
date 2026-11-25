@@ -28,10 +28,11 @@ export async function GET(
       fileType = 'REPORT';
 
       // Authorization guard: Analysts can only download reports for their assigned or reviewed tasks
+      const profileId = caller.profileId || caller.id;
       if (
         caller.role === UserRole.ANALYST &&
-        reportVersion.report.assignment.primaryAnalystId !== caller.id &&
-        reportVersion.report.assignment.reviewerId !== caller.id
+        reportVersion.report.assignment.primaryAnalystId !== profileId &&
+        reportVersion.report.assignment.reviewerId !== profileId
       ) {
         return NextResponse.json({ error: 'Unauthorized to download this research report' }, { status: 403 });
       }
@@ -47,10 +48,11 @@ export async function GET(
         filename = evidence.filename;
         fileType = 'EVIDENCE';
 
+        const profileId = caller.profileId || caller.id;
         if (
           caller.role === UserRole.ANALYST &&
-          evidence.assignment.primaryAnalystId !== caller.id &&
-          evidence.assignment.reviewerId !== caller.id
+          evidence.assignment.primaryAnalystId !== profileId &&
+          evidence.assignment.reviewerId !== profileId
         ) {
           return NextResponse.json({ error: 'Unauthorized to download this evidence file' }, { status: 403 });
         }

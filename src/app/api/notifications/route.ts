@@ -6,12 +6,13 @@ import { UserRole } from '@prisma/client';
 export async function GET(req: NextRequest) {
   try {
     const caller = await requireAuth(UserRole.ANALYST);
+    const profileId = caller.profileId || caller.id;
     const { searchParams } = new URL(req.url);
 
     const unreadOnly = searchParams.get('unreadOnly') === 'true';
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '30', 10)));
 
-    const where: any = { userId: caller.id };
+    const where: any = { userId: profileId };
     if (unreadOnly) {
       where.isRead = false;
     }
@@ -23,10 +24,10 @@ export async function GET(req: NextRequest) {
         orderBy: { createdAt: 'desc' },
       }),
       prisma.notification.count({
-        where: { userId: caller.id, isRead: false },
+        where: { userId: profileId, isRead: false },
       }),
       prisma.notification.count({
-        where: { userId: caller.id },
+        where: { userId: profileId },
       }),
     ]);
 
@@ -47,12 +48,13 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const caller = await requireAuth(UserRole.ANALYST);
+    const profileId = caller.profileId || caller.id;
     const body = await req.json();
     const { notificationId, markAll } = body;
 
     if (markAll) {
       await prisma.notification.updateMany({
-        where: { userId: caller.id, isRead: false },
+        where: { userId: profileId, isRead: false },
         data: { isRead: true },
       });
       return NextResponse.json({ success: true, message: 'All notifications marked as read' });
@@ -60,7 +62,7 @@ export async function PATCH(req: NextRequest) {
 
     if (notificationId) {
       await prisma.notification.updateMany({
-        where: { id: notificationId, userId: caller.id },
+        where: { id: notificationId, userId: profileId },
         data: { isRead: true },
       });
       return NextResponse.json({ success: true, message: 'Notification marked as read' });
@@ -79,9 +81,10 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const caller = await requireAuth(UserRole.ANALYST);
+    const profileId = caller.profileId || caller.id;
 
     await prisma.notification.deleteMany({
-      where: { userId: caller.id, isRead: true },
+      where: { userId: profileId, isRead: true },
     });
 
     return NextResponse.json({ success: true, message: 'Cleared read notifications' });
