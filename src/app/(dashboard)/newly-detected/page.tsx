@@ -22,6 +22,7 @@ interface NewlyDetectedGroup {
   discoveryStatus: string;
   discoveryMonth?: string;
   victimCount: number;
+  firstClaimAt?: string | null;
   threatLedgerDetectedAt: string;
   aliases: Array<{ alias: string }>;
   assignments: Array<{
@@ -31,15 +32,47 @@ interface NewlyDetectedGroup {
   }>;
 }
 
+interface MonthOption {
+  month: string;
+  count: number;
+}
+
+function formatMonthLabel(monthStr: string): string {
+  const [y, m] = monthStr.split('-').map(Number);
+  if (!y || !m) return monthStr;
+  const label = new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+  return monthStr === '2026-11' ? `${label} (Current)` : label;
+}
+
 export default function NewlyDetectedPage() {
   const [groups, setGroups] = useState<NewlyDetectedGroup[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([
+    { month: '2026-11', count: 0 },
+    { month: '2026-10', count: 0 },
+    { month: '2026-09', count: 0 },
+    { month: '2026-08', count: 0 },
+  ]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState('2026-11');
+
+  useEffect(() => {
+    fetch('/api/groups?availableMonths=true')
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.months) && d.months.length > 0) {
+          setAvailableMonths(d.months);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   async function loadNewlyDetected() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/groups?discoveryStatus=NEWLY_LISTED&month=${selectedMonth}`);
+      const res = await fetch(`/api/groups?emergedMonth=${selectedMonth}&limit=100`);
       const data = await res.json();
       setGroups(data.groups || []);
     } catch {
@@ -79,10 +112,11 @@ export default function NewlyDetectedPage() {
             onChange={(e) => setSelectedMonth(e.target.value)}
             className="bg-transparent text-xs font-bold text-white pr-2 py-1.5 focus:outline-none"
           >
-            <option value="2026-11" className="bg-slate-900 text-white">November 2026 (Current)</option>
-            <option value="2026-10" className="bg-slate-900 text-white">October 2026</option>
-            <option value="2026-09" className="bg-slate-900 text-white">September 2026</option>
-            <option value="2026-08" className="bg-slate-900 text-white">August 2026</option>
+            {availableMonths.map((opt) => (
+              <option key={opt.month} value={opt.month} className="bg-slate-900 text-white">
+                {formatMonthLabel(opt.month)} ({opt.count})
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -142,7 +176,7 @@ export default function NewlyDetectedPage() {
               <thead>
                 <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
                   <th className="py-3 px-4">Group Name</th>
-                  <th className="py-3 px-4">ThreatLedger Detection (IST)</th>
+                  <th className="py-3 px-4">Emerged / First Claim (IST)</th>
                   <th className="py-3 px-4">Victim Count</th>
                   <th className="py-3 px-4">Assigned Analyst</th>
                   <th className="py-3 px-4">Research Status</th>
@@ -165,7 +199,7 @@ export default function NewlyDetectedPage() {
                         </Link>
                       </td>
                       <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
-                        {formatIST(g.threatLedgerDetectedAt)}
+                        {formatIST(g.firstClaimAt || g.threatLedgerDetectedAt)}
                       </td>
                       <td className="py-3.5 px-4 font-mono font-bold text-white">
                         {g.victimCount.toLocaleString()}

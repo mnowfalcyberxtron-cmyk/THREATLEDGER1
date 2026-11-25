@@ -23,9 +23,38 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search')?.trim() || '';
     const discoveryStatus = searchParams.get('discoveryStatus') as DiscoveryStatus | null;
     const discoveryMonth = searchParams.get('month')?.trim() || null;
+    const emergedMonth = searchParams.get('emergedMonth')?.trim() || null;
+    const availableMonthsOnly = searchParams.get('availableMonths') === 'true';
     const source = searchParams.get('source') as GroupSource | null;
     const limit = Math.min(Number(searchParams.get('limit')) || 50, 100);
     const offset = Number(searchParams.get('offset')) || 0;
+
+    if (availableMonthsOnly) {
+      const allDates = await prisma.ransomwareGroup.findMany({
+        select: {
+          firstClaimAt: true,
+          discoveryMonth: true,
+          discoveryStatus: true,
+          threatLedgerDetectedAt: true,
+        },
+      });
+      const monthCounts = new Map<string, number>();
+      for (const row of allDates) {
+        let m: string | null = null;
+        if (row.firstClaimAt) {
+          m = getISTDiscoveryMonth(row.firstClaimAt);
+        } else if (row.discoveryStatus === DiscoveryStatus.NEWLY_LISTED) {
+          m = row.discoveryMonth || (row.threatLedgerDetectedAt ? getISTDiscoveryMonth(row.threatLedgerDetectedAt) : null);
+        }
+        if (m) {
+          monthCounts.set(m, (monthCounts.get(m) || 0) + 1);
+        }
+      }
+      const months = Array.from(monthCounts.entries())
+        .map(([month, count]) => ({ month, count }))
+        .sort((a, b) => b.month.localeCompare(a.month));
+      return NextResponse.json({ months });
+    }
 
     const where: any = {};
 
@@ -38,6 +67,35 @@ export async function GET(req: NextRequest) {
     }
 
     if (discoveryStatus) where.discoveryStatus = discoveryStatus;
+    if (emergedMonth) {
+      const [yearStr, monthStr] = emergedMonth.split('-');
+      const year = Number(yearStr);
+      const month = Number(monthStr);
+      if (year && month) {
+        const startUTC = new Date(Date.UTC(year, month - 1, 1, -5, -30));
+        const endUTC = new Date(Date.UTC(year, month, 1, -5, -30));
+        where.AND = [
+          ...(where.AND || []),
+          {
+            OR: [
+              { firstClaimAt: { gte: startUTC, lt: endUTC } },
+              {
+                AND: [
+                  { firstClaimAt: null },
+                  { discoveryStatus: DiscoveryStatus.NEWLY_LISTED },
+                  {
+                    OR: [
+                      { discoveryMonth: emergedMonth },
+                      { threatLedgerDetectedAt: { gte: startUTC, lt: endUTC } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ];
+      }
+    }
     if (discoveryMonth) {
       const [yearStr, monthStr] = discoveryMonth.split('-');
       const year = Number(yearStr);
@@ -79,7 +137,9 @@ export async function GET(req: NextRequest) {
             select: { victims: true },
           },
         },
-        orderBy: { threatLedgerDetectedAt: 'desc' },
+        orderBy: emergedMonth
+          ? [{ firstClaimAt: 'desc' }, { threatLedgerDetectedAt: 'desc' }]
+          : { threatLedgerDetectedAt: 'desc' },
         take: limit,
         skip: offset,
       }),
