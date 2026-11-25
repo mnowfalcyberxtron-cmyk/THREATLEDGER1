@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma';
 import { fetchGroupsInventory, fetchRecentVictims } from '@/lib/integrations/ransomware-live';
 import { recordAuditLog } from '@/lib/audit';
+import { ensureIntelligenceSourcesExist } from '@/lib/intelligence/seed-sources';
 import { DiscoveryStatus, GroupSource, SyncStatus } from '@prisma/client';
 
 export interface SyncResult {
@@ -40,6 +41,7 @@ export async function runGroupInventorySync(): Promise<SyncResult> {
   });
 
   try {
+    await ensureIntelligenceSourcesExist();
     const { groups, source } = await fetchGroupsInventory();
     const currentMonth = getISTDiscoveryMonth();
 

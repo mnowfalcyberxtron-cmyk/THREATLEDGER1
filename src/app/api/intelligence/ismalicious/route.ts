@@ -9,6 +9,7 @@ import {
   getIsMaliciousCredentials,
 } from '@/lib/intelligence/sources/ismalicious';
 import { correlateGroup, linkGroupObservation } from '@/lib/intelligence/correlation';
+import { ensureIntelligenceSourcesExist } from '@/lib/intelligence/seed-sources';
 import { SourceLineage, SyncStatus, VerificationStatus, ObservationSemantic, DiscoveryStatus, GroupStatus } from '@prisma/client';
 
 export const maxDuration = 60;
@@ -185,6 +186,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'SYNC') {
+      await ensureIntelligenceSourcesExist();
       const { apiKey: keyToUse, apiSecret: secretToUse } = await getCredentials();
       const startTime = Date.now();
 
