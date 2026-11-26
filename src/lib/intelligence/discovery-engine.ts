@@ -96,16 +96,22 @@ export async function getDiscoverySummaryMetrics(year?: number, month?: number):
     },
   });
 
-  // 4. Existing Groups Updated: active in month, but first observed before month start
+  // 4. Existing Groups Updated: active/updated in month, but originated before month start (or baseline)
   const existingGroupsUpdated = await prisma.ransomwareGroup.count({
     where: {
-      lastSeenAt: {
-        gte: startUTC,
-        lt: endUTC,
-      },
-      firstObservedAt: {
-        lt: startUTC,
-      },
+      OR: [
+        { lastSeenAt: { gte: startUTC, lt: endUTC } },
+        { lastObservedAt: { gte: startUTC, lt: endUTC } },
+      ],
+      AND: [
+        {
+          OR: [
+            { firstObservedAt: { lt: startUTC } },
+            { firstClaimAt: { lt: startUTC } },
+            { discoveryStatus: DiscoveryStatus.BASELINE },
+          ],
+        },
+      ],
     },
   });
 
