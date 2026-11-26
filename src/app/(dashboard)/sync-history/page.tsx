@@ -82,7 +82,7 @@ export default function SyncHistoryPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">Synchronization History</h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Audit log of Ransomware.live API PRO inventory runs, baseline status, and new group discovery events.
+            Audit log of threat intelligence inventory runs, baseline status, and new group discovery events.
           </p>
         </div>
 

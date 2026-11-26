@@ -101,7 +101,7 @@ export default function MonitoringPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">Ransomware Monitoring</h1>
           <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-            Active tracking of extortion syndicates, leak platforms, and operational status via Ransomware.live API PRO.
+            Active tracking of extortion syndicates, leak platforms, and operational status.
           </p>
         </div>
 

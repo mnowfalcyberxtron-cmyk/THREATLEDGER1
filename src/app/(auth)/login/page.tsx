@@ -109,7 +109,7 @@ export default function LoginPage() {
           <div className="mt-8 grid grid-cols-1 gap-3.5 w-full text-xs text-slate-300">
             <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/60 border border-slate-800">
               <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-              <span>Real-time Ransomware.live API PRO baseline tracking</span>
+              <span>Real-time ransomware syndicate baseline tracking</span>
             </div>
             <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/60 border border-slate-800">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />

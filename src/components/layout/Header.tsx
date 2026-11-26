@@ -70,7 +70,7 @@ export function Header({ userFullName, userRole, onSyncNow, syncing = false }: H
         {/* Live Source Indicator */}
         <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-emerald-950/40 border border-emerald-500/20 text-xs text-emerald-400">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-medium text-[11px]">Ransomware.live API PRO Active</span>
+          <span className="font-medium text-[11px]">ThreatLedger Intel Engine Active</span>
         </div>
       </div>
 
