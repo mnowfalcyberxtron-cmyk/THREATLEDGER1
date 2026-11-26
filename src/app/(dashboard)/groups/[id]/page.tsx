@@ -408,7 +408,7 @@ export default function GroupProfilePage() {
       {activeTab === 'ttps' && (
         <div className="bg-[#0a101f] border border-slate-800 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="font-bold text-white text-sm">MITRE ATT&CK Mapping (v14.1)</h3>
+            <h3 className="font-bold text-white text-sm">MITRE ATT&CK Mapping</h3>
             <span className="text-[11px] text-slate-500">Publicly Documented Tactics & Techniques</span>
           </div>
           {(!group.ttps || group.ttps.length === 0) ? (
