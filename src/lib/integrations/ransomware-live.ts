@@ -288,3 +288,125 @@ export async function fetchRecentVictims(): Promise<NormalizedVictim[]> {
     return MOCK_VICTIMS;
   }
 }
+
+export interface GroupFullIntel {
+  description?: string;
+  websiteUrl?: string;
+  victimCount?: number;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  ttps: Array<{ tactic: string; techniqueId: string; techniqueName: string }>;
+  cves: Array<{ cveId: string; description?: string; cvssScore?: number }>;
+  tools: Array<{ toolName: string; category?: string }>;
+  victims: NormalizedVictim[];
+}
+
+/**
+ * Fetches complete group dossier (TTPs, CVEs, Tools) and ALL claimed victims for a specific group.
+ */
+export async function fetchGroupFullIntel(groupName: string): Promise<GroupFullIntel | null> {
+  const apiKey = process.env.RANSOMWARE_LIVE_API_KEY;
+  if (!apiKey || apiKey === 'your_ransomware_live_api_pro_key') {
+    return null;
+  }
+
+  const encoded = encodeURIComponent(groupName.toLowerCase());
+  const headers = { 'X-API-KEY': apiKey, 'Accept': 'application/json' };
+
+  try {
+    const [groupRes, victimsRes] = await Promise.all([
+      fetch(`${BASE_URL}/group/${encoded}`, { method: 'GET', headers, signal: AbortSignal.timeout(15000) }),
+      fetch(`${BASE_URL}/victims/?group=${encoded}`, { method: 'GET', headers, signal: AbortSignal.timeout(20000) }),
+    ]);
+
+    const groupData = groupRes.ok ? await groupRes.json() : null;
+    const victimsData = victimsRes.ok ? await victimsRes.json() : null;
+
+    const ttps: Array<{ tactic: string; techniqueId: string; techniqueName: string }> = [];
+    if (Array.isArray(groupData?.ttps)) {
+      for (const t of groupData.ttps) {
+        const tactic = t.tactic_name || t.tactic || 'Unknown';
+        if (Array.isArray(t.techniques)) {
+          for (const tech of t.techniques) {
+            if (tech.technique_id || tech.technique_name) {
+              ttps.push({
+                tactic,
+                techniqueId: tech.technique_id || tech.technique_name,
+                techniqueName: tech.technique_name || tech.technique_id,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const cves: Array<{ cveId: string; description?: string; cvssScore?: number }> = [];
+    if (Array.isArray(groupData?.vulnerabilities)) {
+      for (const v of groupData.vulnerabilities) {
+        const cveId = typeof v === 'string' ? v : v.cve || v.cveId || v.id;
+        if (cveId) {
+          cves.push({
+            cveId,
+            description: typeof v === 'object' ? v.description : undefined,
+            cvssScore: typeof v === 'object' && v.cvss ? Number(v.cvss) : undefined,
+          });
+        }
+      }
+    }
+
+    const tools: Array<{ toolName: string; category?: string }> = [];
+    if (groupData?.tools && typeof groupData.tools === 'object' && !Array.isArray(groupData.tools)) {
+      for (const [category, list] of Object.entries(groupData.tools)) {
+        if (Array.isArray(list)) {
+          for (const toolName of list) {
+            if (typeof toolName === 'string' && toolName.trim()) {
+              tools.push({ toolName: toolName.trim(), category });
+            }
+          }
+        }
+      }
+    }
+
+    const rawVictims: any[] = Array.isArray(victimsData)
+      ? victimsData
+      : Array.isArray(victimsData?.victims)
+      ? victimsData.victims
+      : [];
+
+    const victims: NormalizedVictim[] = rawVictims.map((v) => {
+      const countryCode = v.country_code || (v.country && v.country.length === 2 ? v.country.toUpperCase() : undefined);
+      const sector = v.sector || (v.activity && v.activity !== 'Not Found' ? v.activity : undefined);
+      return {
+        externalId: v.id || v.victim_id || `${groupName}-${v.post_title || v.victim || 'unknown'}`.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+        groupName: v.group_name || v.group || groupName,
+        victimName: v.post_title || v.victim || 'Unknown Organization',
+        country: v.country || undefined,
+        countryCode,
+        sector,
+        domain: v.website || v.domain || undefined,
+        discoveredAt: v.discovered || v.published || undefined,
+        attackedAt: v.attackdate || v.attack_date || undefined,
+        sourceUrl: v.post_url || undefined,
+        claimType: 'ATTACKER_CLAIM',
+      };
+    });
+
+    const firstLoc = Array.isArray(groupData?.locations) ? groupData.locations[0] : null;
+    const websiteUrl = firstLoc?.slug || firstLoc?.fqdn || groupData?.url || undefined;
+
+    return {
+      description: groupData?.description || undefined,
+      websiteUrl,
+      victimCount: groupData?.victims !== undefined ? Number(groupData.victims) : victimsData?.count !== undefined ? Number(victimsData.count) : undefined,
+      firstSeenAt: groupData?.firstseen || undefined,
+      lastSeenAt: groupData?.lastseen || undefined,
+      ttps,
+      cves,
+      tools,
+      victims,
+    };
+  } catch (err) {
+    console.error('[Ransomware.live] fetchGroupFullIntel failed for', groupName, err);
+    return null;
+  }
+}
